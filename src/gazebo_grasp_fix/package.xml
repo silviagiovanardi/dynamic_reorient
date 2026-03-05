@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>gazebo_grasp_fix</name>
+  <version>0.1.0</version>
+  <description>Gazebo Classic world plugin: attach/detach objects to gripper via ROS2 services</description>
+  <maintainer email="dev@example.com">dev</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>gazebo_dev</depend>
+  <depend>gazebo_ros</depend>
+  <depend>std_srvs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
