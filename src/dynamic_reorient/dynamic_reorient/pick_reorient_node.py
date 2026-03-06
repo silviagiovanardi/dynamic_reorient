@@ -223,8 +223,12 @@ class PickReorientNode(Node):
         color = task['color']
         needs_reorient = task.get('reorient', False)
 
-        grasp_z = pz + 0.02
-        grasp_z = max(grasp_z, self.TABLE_Z + 0.03)
+        # TCP height: fingers extend ~14cm below TCP on Robotiq 2F-85
+        # We want fingertips at object center height (pz)
+        # So TCP should be at pz + fingertip_offset
+        # But we need to account for object size - grip at middle of object
+        grasp_z = pz + 0.005
+        grasp_z = max(grasp_z, self.TABLE_Z + 0.015)
 
         self.publish_status(f'=== {task["name"]} ===')
 
@@ -452,6 +456,15 @@ class PickReorientNode(Node):
         traj.points.append(pt)
         goal = FollowJointTrajectory.Goal()
         goal.trajectory = traj
+        from control_msgs.msg import JointTolerance
+        for jn in self.gripper_joints:
+            tol = JointTolerance()
+            tol.name = jn
+            tol.position = 0.5
+            tol.velocity = 1.0
+            tol.acceleration = 10.0
+            goal.goal_tolerance.append(tol)
+        goal.goal_time_tolerance = Duration(sec=5)
         future = self.gripper_client.send_goal_async(goal)
         self._wait_for_future(future, timeout_sec=10.0)
         gh = future.result()
@@ -472,6 +485,16 @@ class PickReorientNode(Node):
         traj.points.append(pt)
         goal = FollowJointTrajectory.Goal()
         goal.trajectory = traj
+        # Wide tolerances — gripper will stall against object, that's OK
+        from control_msgs.msg import JointTolerance
+        for jn in self.gripper_joints:
+            tol = JointTolerance()
+            tol.name = jn
+            tol.position = 0.5
+            tol.velocity = 1.0
+            tol.acceleration = 10.0
+            goal.goal_tolerance.append(tol)
+        goal.goal_time_tolerance = Duration(sec=5)
         future = self.gripper_client.send_goal_async(goal)
         if not self._wait_for_future(future, timeout_sec=10.0):
             return False

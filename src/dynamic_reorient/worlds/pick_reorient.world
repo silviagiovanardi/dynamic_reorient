@@ -4,8 +4,8 @@
 
     <physics type="ode">
       <max_step_size>0.002</max_step_size>
-      <real_time_factor>1.0</real_time_factor>
-      <real_time_update_rate>500</real_time_update_rate>
+      <real_time_factor>0.5</real_time_factor>
+      <real_time_update_rate>250</real_time_update_rate>
     </physics>
 
     <!-- Grasp fix plugin: attach/detach objects to gripper via ROS2 services -->
@@ -13,7 +13,7 @@
       <robot_model>ur5</robot_model>
 
       <robot_link>left_inner_finger</robot_link>
-      <search_radius>0.08</search_radius>
+      <search_radius>0.12</search_radius>
     </plugin>
 
     <include><uri>model://sun</uri></include>
