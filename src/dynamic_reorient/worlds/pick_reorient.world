@@ -13,7 +13,7 @@
       <robot_model>ur5</robot_model>
 
       <robot_link>left_inner_finger</robot_link>
-      <search_radius>0.14</search_radius>
+      <search_radius>0.08</search_radius>
     </plugin>
 
     <include><uri>model://sun</uri></include>
@@ -609,7 +609,7 @@
     <!-- Blue cylinder 1 (lying on side) -->
     <!-- Lying: rests on r=0.02, center at TABLE(0.71)+0.02=0.73 -->
     <model name="blue_cylinder_1">
-      <pose>0.30 -0.35 0.73 1.5708 -0.3 0.8</pose>
+      <pose>0.25 -0.42 0.73 1.5708 -0.3 0.8</pose>
       <link name="link">
         <inertial><mass>0.15</mass>
           <inertia><ixx>2e-5</ixx><iyy>2e-5</iyy><izz>1e-5</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
