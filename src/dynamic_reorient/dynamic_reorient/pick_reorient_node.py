@@ -74,7 +74,22 @@ class PickReorientNode(Node):
 
         self.current_joints = None
         self.detected_objects = []
+        self.last_arm_seed = None
         self.is_busy = False
+        self.controllers_ready = False
+
+        # Gripper closing values (Robotiq 2F-85, 0.0=open, 0.8=full close)
+        # Depends on shape AND orientation:
+        #   V (vertical/standing) = top-down view (small cross-section)
+        #   H (horizontal/lying)  = side grasp (full diameter/width)
+        self.grip_values = {
+            ('bottle', True):    {'partial': 0.55, 'full': 0.72},  # V: grabbing cap ~2cm
+            ('bottle', False):   {'partial': 0.35, 'full': 0.58},  # H: grabbing body ~4cm
+            ('cylinder', True):  {'partial': 0.45, 'full': 0.65},  # V: top circle ~3cm
+            ('cylinder', False): {'partial': 0.35, 'full': 0.58},  # H: full diameter ~4cm
+            ('box', True):       {'partial': 0.30, 'full': 0.52},  # V: top face ~5cm
+            ('box', False):      {'partial': 0.25, 'full': 0.48},  # H: wider side ~6cm
+        }
 
         # Action clients
         self.arm_client = ActionClient(
@@ -135,24 +150,49 @@ class PickReorientNode(Node):
 
     def _go_home_once(self):
         self._home_timer.cancel()
+        # Wait for both controllers to be available before first motion
+        self.get_logger().info('Waiting for arm controller...')
+        self.arm_client.wait_for_server()
+        self.get_logger().info('Waiting for gripper controller...')
+        self.gripper_client.wait_for_server()
+        self.get_logger().info('Controllers ready')
+        self.controllers_ready = True
         self.go_home()
 
     def go_home(self):
         self.publish_status('Moving to home')
         self.move_arm([0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0], 3.0)
 
+    def _sort_objects(self):
+        """Sort detected objects: vertical first, horizontal last.
+        This avoids knocking over nearby objects during reorientation."""
+        def sort_key(obj_pose):
+            parts = obj_pose.header.frame_id.split('::')
+            is_vertical = (parts[3] == 'V') if len(parts) >= 4 else False
+            return 0 if is_vertical else 1
+        self.detected_objects.sort(key=sort_key)
+
     def main_loop(self):
+        if not self.controllers_ready:
+            return
         if self.is_busy or not self.detected_objects:
             if not self.detected_objects:
                 self.get_logger().info(
                     'Waiting for detections...', throttle_duration_sec=10.0)
             return
         self.is_busy = True
+        self._sort_objects()
         obj = self.detected_objects.pop(0)
         try:
             self.execute_pick_reorient_place(obj)
         except Exception as e:
             self.get_logger().error(f'Error: {e}')
+            # Recovery: wait for controllers to come back
+            self.get_logger().info('Recovering — waiting for controllers...')
+            self.arm_client.wait_for_server(timeout_sec=15.0)
+            self.gripper_client.wait_for_server(timeout_sec=15.0)
+            time.sleep(2.0)
+            self.go_home()
         self.is_busy = False
 
     def _parse_metadata(self, obj_pose):
@@ -169,12 +209,17 @@ class PickReorientNode(Node):
         cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
         return float(np.arctan2(siny_cosp, cosy_cosp))
 
+    def _snap_yaw_90(self, yaw):
+        """Snap yaw to nearest multiple of 90 degrees."""
+        step = np.pi / 2.0
+        return float(np.round(yaw / step) * step)
+
     # ------------------------------------------------------------------
     # Height constants
     # ------------------------------------------------------------------
     TABLE_Z = 0.71          # table top surface (collision center 0.69 + half 0.02)
     CONTAINER_Z = 0.712     # container base plate Z
-    SAFE_Z = 0.71 + 0.12    # = 0.83 m — travel height, clears all objects & walls
+    SAFE_Z = 1.10           # travel height — high enough to clear objects during reorient swing
 
     CONTAINER_WALL = {
         'red': 0.08,
@@ -200,7 +245,6 @@ class PickReorientNode(Node):
         # Safety clamp: never go below table + small margin
         min_z = self.TABLE_Z + 0.005
         tcp_z = max(tcp_z, min_z)
-
         self.get_logger().info(
             f'_grasp_z REAL: detected={obj_z:.3f} '
             f'tcp={tcp_z:.3f} (clamped_min={min_z:.3f})')
@@ -208,21 +252,22 @@ class PickReorientNode(Node):
         return tcp_z
 
     def _insert_z(self, color):
-        """TCP Z for placement — just above container walls."""
+        """TCP Z for placement — ABOVE container walls, not inside."""
         wall_h = self.CONTAINER_WALL.get(color, 0.08)
-        return self.CONTAINER_Z + wall_h + 0.03
+        return self.CONTAINER_Z + wall_h + 0.10
 
     # ------------------------------------------------------------------
     # Interpolated Z descent
     # ------------------------------------------------------------------
-    def _descend_to(self, x, y, z_start, z_end, yaw=0.0, steps=4, pitch=np.pi - 0.05):
+    def _descend_to(self, x, y, z_start, z_end, yaw=0.0, steps=8,
+                    pitch=np.pi - 0.05, roll=0.0):
         """
         Move in small Z steps from z_start to z_end, keeping XY fixed.
         Returns True if all steps succeeded, False on first failure.
         """
         for z in np.linspace(z_start, z_end, steps):
             if not self.move_to_pose(
-                    self.make_pose(x, y, float(z), pitch=pitch, yaw=yaw),
+                    self.make_pose(x, y, float(z), pitch=pitch, yaw=yaw, roll=roll),
                     duration=1.0):
                 return False
         return True
@@ -238,6 +283,9 @@ class PickReorientNode(Node):
 
         # Extract object yaw so gripper approaches aligned with the object
         obj_yaw = self._extract_yaw(obj_pose.pose.orientation)
+
+        carry_yaw = obj_yaw
+        carry_pitch = np.pi - 0.05
 
         # Find slot
         slots = self.color_slots.get(color)
@@ -260,7 +308,7 @@ class PickReorientNode(Node):
         self.control_gripper(open_gripper=True)
 
         # 2. Move above object at LOCAL safe height (not always SAFE_Z)
-        approach_z_pick = grasp_z + 0.10
+        approach_z_pick = grasp_z + 0.15
         approach_z_pick = max(approach_z_pick, self.TABLE_Z + 0.08)
         approach_z_pick = min(approach_z_pick, self.SAFE_Z)
 
@@ -271,39 +319,67 @@ class PickReorientNode(Node):
                 self.get_logger().error('Safe-height approach IK failed')
                 return
 
-        # 3. Descend
+        # 3. Descend — use more steps for precision
         self.publish_status(f'Descending to grasp z={grasp_z:.3f}')
-        if not self._descend_to(px, py, approach_z_pick, grasp_z, yaw=obj_yaw):
+        if not self._descend_to(px, py, approach_z_pick, grasp_z, yaw=obj_yaw, steps=6):
             self.get_logger().error('Descent to grasp failed')
             return
 
-        # 4. Close gripper (visual) + attach via fixed joint
-        self.control_gripper_partial(0.3)
+        # 4. Grasp: attach FIRST (while gripper is open around the object),
+        #    then gently close. This prevents the object from being launched.
+        grip = self.grip_values.get((shape, is_vertical), {'partial': 0.40, 'full': 0.60})
         time.sleep(0.5)
         self.grasp_attach()
-        self.control_gripper_partial(0.8)
+        time.sleep(0.3)
+        self.control_gripper_partial(grip['partial'])
+        time.sleep(1.5)
+        self.control_gripper_partial(grip['full'])
 
-        # 5. Lift straight up to safe height
-        lift_z = approach_z_pick
-        if not self._descend_to(px, py, grasp_z, lift_z, yaw=obj_yaw):
+        # 5. Lift straight up to SAFE_Z — always clear all objects before moving
+        self.publish_status('Lifting to safe height')
+        if not self._descend_to(px, py, grasp_z, self.SAFE_Z, yaw=obj_yaw, steps=3):
             self.get_logger().error('Lift failed')
             return
 
-        # 6. If horizontal bottle/cylinder, reorient by moving to a vertical TCP pose via IK
-        #    This works even if the object is diagonal in XY (yaw != 0, pi/2).
+        # 6. If horizontal bottle/cylinder, reorient via IK to tilt gripper 90°
+        carry_roll = 0.0
         if not is_vertical and shape in ('bottle', 'cylinder'):
-            self.publish_status('Reorienting using wrist joint (H->V)')
-            self._reorient_horizontal_to_vertical()
+            self.publish_status('Reorienting (H->V) via IK')
+            carry_yaw = self._snap_yaw_90(obj_yaw)
+            carry_roll = np.pi / 2  # tilt gripper 90° so horizontal object hangs vertical
+
+            # Reorient in place at current XY, high Z
+            reorient_z = self.SAFE_Z + 0.05
+            if not self.move_to_pose(
+                self.make_pose(px, py, reorient_z, pitch=carry_pitch, yaw=carry_yaw, roll=carry_roll),
+                duration=3.0
+            ):
+                # Try opposite roll direction
+                carry_roll = -np.pi / 2
+                if not self.move_to_pose(
+                    self.make_pose(px, py, reorient_z, pitch=carry_pitch, yaw=carry_yaw, roll=carry_roll),
+                    duration=3.0
+                ):
+                    self.get_logger().error('Reorient IK failed')
+                    return
 
         # 7. Travel above container at safe height
         self.publish_status(f'Moving above {color} container')
-        self.move_to_pose(
-            self.make_pose(slot['x'], slot['y'], self.SAFE_Z), duration=2.0)
+        if not self.move_to_pose(
+            self.make_pose(slot['x'], slot['y'], self.SAFE_Z,
+                           pitch=carry_pitch, yaw=carry_yaw, roll=carry_roll),
+            duration=3.0
+        ):
+            self.get_logger().error('Move above container failed')
+            return
 
-        # 8. Descend into container in small steps
+        # 8. Descend above container and release
         insert_z = self._insert_z(color)
-        self.publish_status(f'Descending into container z={insert_z:.3f}')
-        self._descend_to(slot['x'], slot['y'], self.SAFE_Z, insert_z)
+        self.publish_status(f'Descending above container z={insert_z:.3f}')
+        if not self._descend_to(slot['x'], slot['y'], self.SAFE_Z, insert_z,
+                                yaw=carry_yaw, pitch=carry_pitch, roll=carry_roll, steps=3):
+            self.get_logger().error('Descent above container failed')
+            return
 
         # 9. Detach + open gripper
         self.grasp_detach()
@@ -311,8 +387,13 @@ class PickReorientNode(Node):
         self.control_gripper(open_gripper=True)
         time.sleep(0.5)
 
-        # 10. Ascend back to safe height before moving away
-        self._descend_to(slot['x'], slot['y'], insert_z, self.SAFE_Z)
+        # 10. Ascend back to safe height
+        self.move_to_pose(
+            self.make_pose(slot['x'], slot['y'], self.SAFE_Z,
+                           pitch=carry_pitch, yaw=carry_yaw, roll=carry_roll),
+
+            duration=2.0
+        )
 
         slot['used'] = True
         self.go_home()
@@ -322,6 +403,7 @@ class PickReorientNode(Node):
     # Reorientation: rotate a horizontal object to vertical
     # ------------------------------------------------------------------
     def _reorient_horizontal_to_vertical(self, tilt=np.pi/2):
+
         if self.current_joints is None:
             self.get_logger().warn('No joint state for reorientation')
             return False
@@ -342,8 +424,11 @@ class PickReorientNode(Node):
         w2    = get_joint('wrist_2_joint')
         w3    = get_joint('wrist_3_joint')
 
-        w1_tilted = w1 + tilt
+        # Tilt wrist_1 to rotate the gripper 90° so a horizontal object becomes vertical
+        w1_tilted = w1 - tilt
+
         ok = self.move_arm([pan, lift, elbow, w1_tilted, w2, w3], duration=2.5)
+
         return bool(ok)
 
     # ------------------------------------------------------------------
@@ -378,13 +463,17 @@ class PickReorientNode(Node):
     # ------------------------------------------------------------------
     # Pose creation
     # ------------------------------------------------------------------
-    def make_pose(self, x, y, z, pitch=np.pi - 0.05, yaw=0.0):
-        """pitch=pi → gripper down, pitch=pi/2 → gripper sideways."""
+    def make_pose(self, x, y, z, pitch=np.pi - 0.05, yaw=0.0, roll=0.0):
+        """
+        pitch=pi → gripper down, yaw rotates around Z.
+        roll tilts the gripper sideways (for reoriented objects).
+        Euler order: XYZ intrinsic (pitch around X, roll around Y, yaw around Z).
+        """
         pose = PoseStamped()
         pose.header.frame_id = 'world'
         pose.header.stamp = self.get_clock().now().to_msg()
         pose.pose.position = Point(x=x, y=y, z=z)
-        q = R.from_euler('xyz', [pitch, 0, yaw]).as_quat()
+        q = R.from_euler('xyz', [pitch, roll, yaw]).as_quat()
         pose.pose.orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
         return pose
 
@@ -403,8 +492,20 @@ class PickReorientNode(Node):
         req.ik_request.timeout.sec = 5
         req.ik_request.avoid_collisions = False
         
-        if self.current_joints is not None:
-            req.ik_request.robot_state.joint_state = self.current_joints
+        if self.last_arm_seed is not None:
+            arm_js = JointState()
+            arm_js.name = list(self.arm_joints)
+            arm_js.position = list(self.last_arm_seed)
+            req.ik_request.robot_state.joint_state = arm_js
+        elif self.current_joints is not None:
+            # fallback come prima
+            arm_js = JointState()
+            arm_js.header = self.current_joints.header
+            for i, name in enumerate(self.current_joints.name):
+                if name in self.arm_joints:
+                    arm_js.name.append(name)
+                    arm_js.position.append(self.current_joints.position[i])
+            req.ik_request.robot_state.joint_state = arm_js
 
         try:
             result = self.ik_client.call(req)
@@ -435,7 +536,7 @@ class PickReorientNode(Node):
         return self.move_arm(positions, duration)
 
     def move_arm(self, positions, duration=4.0):
-        if not self.arm_client.wait_for_server(timeout_sec=2.0):
+        if not self.arm_client.wait_for_server(timeout_sec=10.0):
             self.get_logger().error('Arm controller not available')
             return False
         traj = JointTrajectory()
@@ -449,7 +550,7 @@ class PickReorientNode(Node):
         goal = FollowJointTrajectory.Goal()
         goal.trajectory = traj
         future = self.arm_client.send_goal_async(goal)
-        if not self._wait_for_future(future, timeout_sec=10.0):
+        if not self._wait_for_future(future, timeout_sec=15.0):
             self.get_logger().error('Arm send_goal timeout')
             return False
         gh = future.result()
@@ -458,7 +559,12 @@ class PickReorientNode(Node):
             return False
         rf = gh.get_result_async()
         if not self._wait_for_future(rf, timeout_sec=duration + 20.0):
-            self.get_logger().error('Arm result timeout')
+            self.get_logger().error('Arm result timeout — cancelling goal')
+            try:
+                gh.cancel_goal_async()
+            except Exception:
+                pass
+            time.sleep(2.0)
             return False
         res = rf.result()
         if res is None:
@@ -467,10 +573,11 @@ class PickReorientNode(Node):
         if res.result.error_code != 0:
             self.get_logger().error(f"Arm execution failed, error_code={res.result.error_code}")
             return False
+        self.last_arm_seed = list(positions)
         return True
 
     def control_gripper(self, open_gripper=True):
-        if not self.gripper_client.wait_for_server(timeout_sec=2.0):
+        if not self.gripper_client.wait_for_server(timeout_sec=5.0):
             self.get_logger().error('Gripper controller not available')
             return False
         traj = JointTrajectory()
@@ -492,7 +599,7 @@ class PickReorientNode(Node):
         return True
 
     def control_gripper_partial(self, value):
-        if not self.gripper_client.wait_for_server(timeout_sec=2.0):
+        if not self.gripper_client.wait_for_server(timeout_sec=5.0):
             return False
 
         traj = JointTrajectory()
@@ -501,7 +608,7 @@ class PickReorientNode(Node):
         pt = JointTrajectoryPoint()
         pt.positions = [value, value, value, value, -value, -value]
         pt.velocities = [0.0] * 6
-        pt.time_from_start = Duration(sec=1)
+        pt.time_from_start = Duration(sec=3)
 
         traj.points.append(pt)
 

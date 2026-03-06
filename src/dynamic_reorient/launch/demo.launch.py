@@ -2,7 +2,7 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, TimerAction
+from launch.actions import IncludeLaunchDescription, TimerAction, ExecuteProcess
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 
@@ -49,4 +49,15 @@ def generate_launch_description():
         ],
     )
 
-    return LaunchDescription([gazebo, moveit, pose_estimator, pick_node])
+    # Camera debug view — shows what the pose estimator sees
+    camera_view = TimerAction(
+        period=16.0,
+        actions=[
+            ExecuteProcess(
+                cmd=['ros2', 'run', 'rqt_image_view', 'rqt_image_view', '/pose_estimator/debug'],
+                output='screen',
+            ),
+        ],
+    )
+
+    return LaunchDescription([gazebo, moveit, pose_estimator, pick_node, camera_view])

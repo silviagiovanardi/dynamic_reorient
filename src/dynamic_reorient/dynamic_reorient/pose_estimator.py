@@ -28,6 +28,15 @@ class PoseEstimator(Node):
     CONTOUR_AREA_MIN = 150
     CONTOUR_AREA_MAX = 15000
 
+    # Container positions to exclude from detection (x, y)
+    # These are the drop-off bins — we don't want to pick them up
+    CONTAINER_POSITIONS = [
+        (0.55, 0.25), (0.65, 0.25),    # red containers
+        (0.55, 0.0),  (0.65, 0.0),     # green containers
+        (0.55, -0.25), (0.65, -0.25),  # blue containers
+    ]
+    CONTAINER_EXCLUSION_RADIUS = 0.08  # meters
+
     # Depth range in meters
     DEPTH_MIN = 0.1
     DEPTH_MAX = 3.0
@@ -129,7 +138,7 @@ class PoseEstimator(Node):
     # Depth sampling - use median of a small patch for robustness
     # ------------------------------------------------------------------
 
-    def _sample_depth(self, cy, cx, patch_size=5):
+    def _sample_depth(self, cy, cx, patch_size=11):
         """Return median depth in meters around (cy, cx)."""
         h, w = self.depth_image.shape[:2]
         half = patch_size // 2
@@ -140,12 +149,18 @@ class PoseEstimator(Node):
 
         patch = self.depth_image[y0:y1, x0:x1].copy().astype(np.float64)
 
+        # Depth in mm -> meters
         if self.depth_image.dtype != np.float32:
             patch = patch / 1000.0
 
         valid = patch[(patch > self.DEPTH_MIN) & (patch < self.DEPTH_MAX)]
         if len(valid) == 0:
             return -1.0
+
+        # Reject noisy depth patches (jitter)
+        if float(np.std(valid)) > 0.01:
+            return -1.0
+
         return float(np.median(valid))
 
     # ------------------------------------------------------------------
@@ -155,8 +170,11 @@ class PoseEstimator(Node):
     def _classify_shape(self, contour, expected_shape):
         """
         Classify the contour shape and determine if the object is vertical or
-        horizontal.  Returns (shape_name, orientation_quaternion, is_vertical)
+        horizontal.  Returns (shape_name, image_angle_rad, is_vertical)
         or None if the contour does not match expectations.
+
+        image_angle_rad is the raw minAreaRect angle in the camera image plane.
+        The caller must convert it to world-frame yaw using the camera→world TF.
 
         From a top-down camera:
           - VERTICAL object (standing) → appears as a small circle (low aspect)
@@ -186,37 +204,31 @@ class PoseEstimator(Node):
         if expected_shape == 'box':
             if solidity < 0.80:
                 return None
-            # Top-down: standing box looks square (low aspect),
-            # lying box looks rectangular (high aspect)
             is_vertical = aspect < 1.5
 
         elif expected_shape == 'cylinder':
-            # Top-down: standing cylinder → circle, lying → elongated
             if aspect < 1.4 and circularity > 0.55:
                 is_vertical = True
             elif aspect >= 1.4:
                 is_vertical = False
             else:
-                is_vertical = True  # small, roundish → likely standing
+                is_vertical = True
 
         elif expected_shape == 'bottle':
-            # Top-down: standing bottle → small circle (low aspect, high circularity)
-            #           lying bottle → elongated (high aspect)
             if aspect >= 1.6:
-                is_vertical = False   # clearly elongated → lying
+                is_vertical = False
             else:
-                is_vertical = True    # compact/circular → standing
+                is_vertical = True
 
-        # Orientation quaternion
-        angle = np.radians(rect[2])
-        if is_vertical:
-            rot = R.from_euler('xyz', [0.0, 0.0, angle])
-        else:
-            rot = R.from_euler('xyz', [np.pi / 2.0, 0.0, angle])
+        # Return raw image angle — the long axis direction in the image
+        # minAreaRect angle is in degrees, convert to radians
+        # Ensure angle aligns with the LONG axis of the bounding rect
+        angle_deg = rect[2]
+        if w_rect < h_rect:
+            angle_deg += 90.0
+        image_angle_rad = np.radians(angle_deg)
 
-        q = rot.as_quat()
-        orientation = Quaternion(x=float(q[0]), y=float(q[1]), z=float(q[2]), w=float(q[3]))
-        return (detected_shape, orientation, is_vertical)
+        return (detected_shape, image_angle_rad, is_vertical)
 
     # ------------------------------------------------------------------
     # Main detection loop
@@ -255,12 +267,14 @@ class PoseEstimator(Node):
                 if area < self.CONTOUR_AREA_MIN or area > self.CONTOUR_AREA_MAX:
                     continue
 
-                M = cv2.moments(cnt)
-                if M['m00'] == 0:
-                    continue
+                # M = cv2.moments(cnt)
+                # if M['m00'] == 0:
+                #     continue
 
-                cx_px = int(M['m10'] / M['m00'])
-                cy_px = int(M['m01'] / M['m00'])
+                rect = cv2.minAreaRect(cnt)
+                (cx_px, cy_px) = rect[0]
+                cx_px = int(cx_px)
+                cy_px = int(cy_px)
 
                 if cy_px >= self.depth_image.shape[0] or cx_px >= self.depth_image.shape[1]:
                     continue
@@ -291,17 +305,51 @@ class PoseEstimator(Node):
                     if pt_world[2] < self.TABLE_Z_MIN or pt_world[2] > self.TABLE_Z_MAX:
                         continue
 
+                    # Filter out detections near container positions
+                    near_container = False
+                    for cx_cont, cy_cont in self.CONTAINER_POSITIONS:
+                        dist = np.sqrt((pt_world[0] - cx_cont)**2 + (pt_world[1] - cy_cont)**2)
+                        if dist < self.CONTAINER_EXCLUSION_RADIUS:
+                            near_container = True
+                            break
+                    if near_container:
+                        continue
+
                     expected_shape = self.color_to_shape[color_name]
                     result = self._classify_shape(cnt, expected_shape)
                     if result is None:
                         continue
 
-                    detected_shape, orientation, is_vertical = result
+                    detected_shape, image_angle_rad, is_vertical = result
+
+                    # Convert image-plane angle to world-frame yaw.
+                    # In camera_optical_frame: X=right, Y=down, Z=forward.
+                    # The image angle is a rotation in the camera XY plane.
+                    # We project a unit direction vector from the image into world
+                    # to get the true yaw.
+                    dir_cam = np.array([
+                        np.cos(image_angle_rad),
+                        np.sin(image_angle_rad),
+                        0.0
+                    ])
+                    dir_world = rot.apply(dir_cam)
+                    world_yaw = float(np.arctan2(dir_world[1], dir_world[0]))
+
+                    # Build orientation quaternion in world frame
+                    if is_vertical:
+                        obj_rot = R.from_euler('xyz', [0.0, 0.0, world_yaw])
+                    else:
+                        obj_rot = R.from_euler('xyz', [np.pi / 2.0, 0.0, world_yaw])
+                    oq = obj_rot.as_quat()
+                    orientation = Quaternion(
+                        x=float(oq[0]), y=float(oq[1]),
+                        z=float(oq[2]), w=float(oq[3]))
 
                     self.get_logger().debug(
                         f'  → {color_name} {detected_shape} '
                         f'{"V" if is_vertical else "H"} '
-                        f'at ({pt_world[0]:.3f}, {pt_world[1]:.3f}, {pt_world[2]:.3f})')
+                        f'at ({pt_world[0]:.3f}, {pt_world[1]:.3f}, {pt_world[2]:.3f}) '
+                        f'yaw={np.degrees(world_yaw):.1f}°')
 
                     # Publish pose
                     pose = PoseStamped()

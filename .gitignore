@@ -2,12 +2,13 @@
 build/
 install/
 log/
+frames/
 
 # Claude Code
 .claude/
 
 # Test files
-test.mp4
+*.mp4
 
 # Python
 __pycache__/

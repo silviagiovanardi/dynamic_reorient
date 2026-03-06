@@ -122,12 +122,17 @@ def generate_launch_description():
         ],
     )
 
-    # Activate controllers: try load first, then set_state if already loaded
+    # Activate controllers: wait for controller_manager, then load+activate
     activate_script = (
+        'echo "Waiting for controller_manager..."; '
+        'until ros2 service list 2>/dev/null | grep -q /controller_manager/list_controllers; do sleep 1; done; '
+        'echo "controller_manager ready, activating controllers..."; '
         'for c in joint_state_broadcaster arm_controller gripper_controller; do '
         '  ros2 control load_controller --set-state active "$c" 2>/dev/null || '
         '  ros2 control set_controller_state "$c" active 2>/dev/null; '
-        'done'
+        'done; '
+        'echo "Controllers activated"; '
+        'ros2 control list_controllers'
     )
     load_controllers = TimerAction(
         period=15.0,
