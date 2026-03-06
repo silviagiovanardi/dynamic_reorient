@@ -41,7 +41,7 @@ TASKS = [
     },
     {
         'name': 'green_box_1 (standing)',
-        'pick': {'x': 0.35, 'y': 0.10, 'z': 0.76},
+        'pick': {'x': 0.35, 'y': 0.10, 'z': 0.79},
         'yaw': 0.15,
         'shape': 'box', 'vertical': True,
         'grip': 0.42,  # box 5cm wide
@@ -69,7 +69,7 @@ TASKS = [
     # === HORIZONTAL OBJECTS ===
     {
         'name': 'red_bottle_1 (lying)',
-        'pick': {'x': 0.28, 'y': 0.48, 'z': 0.735},
+        'pick': {'x': 0.28, 'y': 0.48, 'z': 0.755},
         'yaw': 0.4,
         'shape': 'bottle', 'vertical': False,
         'grip': 0.45,  # same as standing bottle
@@ -253,15 +253,23 @@ class PickReorientNode(Node):
             self.get_logger().error('Descent failed')
             return
 
-        # 5. GRASP: close partially → attach → close full
+        # 5. GRASP: for horizontal objects attach first to avoid pushing,
+        #    for vertical objects pre-close then attach
         time.sleep(0.3)
-        pre_grip = max(grip - 0.10, 0.10)
-        self.control_gripper_partial(pre_grip, duration=2)
-        time.sleep(0.5)
-        self.grasp_attach()
-        time.sleep(0.5)
-        self.control_gripper_partial(grip, duration=2)
-        time.sleep(0.5)
+        if task.get('vertical', True):
+            pre_grip = max(grip - 0.10, 0.10)
+            self.control_gripper_partial(pre_grip, duration=2)
+            time.sleep(0.5)
+            self.grasp_attach()
+            time.sleep(0.5)
+            self.control_gripper_partial(grip, duration=2)
+            time.sleep(0.5)
+        else:
+            # Horizontal: attach first, then close to avoid knocking object
+            self.grasp_attach()
+            time.sleep(0.5)
+            self.control_gripper_partial(grip, duration=2)
+            time.sleep(0.5)
 
         # 6. Lift
         self.publish_status('Lifting')
