@@ -12,8 +12,8 @@
     <plugin name="gazebo_grasp_fix" filename="libgazebo_grasp_fix.so">
       <robot_model>ur5</robot_model>
 
-      <robot_link>left_inner_finger</robot_link>
-      <search_radius>0.12</search_radius>
+      <robot_link>wrist_3_link</robot_link>
+      <search_radius>0.25</search_radius>
     </plugin>
 
     <include><uri>model://sun</uri></include>

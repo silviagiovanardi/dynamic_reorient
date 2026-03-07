@@ -70,7 +70,7 @@ TASKS = [
     {
         'name': 'red_bottle_1 (lying)',
         'pick': {'x': 0.28, 'y': 0.48, 'z': 0.755},
-        'yaw': 0.4,
+        'yaw': 0.4 + 1.5708,  # perpendicular to bottle axis
         'shape': 'bottle', 'vertical': False,
         'grip': 0.45,  # same as standing bottle
         'place': {'x': 0.65, 'y': 0.25},
@@ -80,7 +80,7 @@ TASKS = [
     {
         'name': 'blue_cylinder_1 (lying)',
         'pick': {'x': 0.25, 'y': -0.42, 'z': 0.73},
-        'yaw': 0.8,
+        'yaw': 0.8 + 1.5708,  # perpendicular to cylinder axis
         'shape': 'cylinder', 'vertical': False,
         'grip': 0.50,  # same as standing cylinder
         'place': {'x': 0.65, 'y': -0.25},
