@@ -32,10 +32,10 @@ TASKS = [
     # === VERTICAL OBJECTS FIRST ===
     {
         'name': 'red_bottle_2 (standing)',
-        'pick': {'x': 0.40, 'y': 0.30, 'z': 0.77},
+        'pick': {'x': 0.40, 'y': 0.30, 'z': 0.83},
         'yaw': 0.2,
         'shape': 'bottle', 'vertical': True,
-        'grip': 0.45,  # bottle r=0.025, diameter=5cm
+        'grip': 0.30,  # bottle r=0.025 — gentle contact, no squeeze
         'place': {'x': 0.55, 'y': 0.25},
         'color': 'red',
     },
@@ -53,7 +53,7 @@ TASKS = [
         'pick': {'x': 0.40, 'y': -0.10, 'z': 0.73},
         'yaw': 0.7,
         'shape': 'box', 'vertical': True,
-        'grip': 0.50,  # small box 4cm wide
+        'grip': 0.35,  # small box 4cm — gentle contact, no squeeze
         'place': {'x': 0.65, 'y': 0.0},
         'color': 'green',
     },
@@ -69,7 +69,7 @@ TASKS = [
     # === HORIZONTAL OBJECTS ===
     {
         'name': 'red_bottle_1 (lying)',
-        'pick': {'x': 0.28, 'y': 0.48, 'z': 0.755},
+        'pick': {'x': 0.28, 'y': 0.48, 'z': 0.74},
         'yaw': 0.4 + 1.5708,  # perpendicular to bottle axis
         'shape': 'bottle', 'vertical': False,
         'grip': 0.45,  # same as standing bottle
@@ -253,23 +253,13 @@ class PickReorientNode(Node):
             self.get_logger().error('Descent failed')
             return
 
-        # 5. GRASP: for horizontal objects attach first to avoid pushing,
-        #    for vertical objects pre-close then attach
+        # 5. GRASP: attach first (no pre-close), then close to grip visually
         time.sleep(0.3)
-        if task.get('vertical', True):
-            pre_grip = max(grip - 0.10, 0.10)
-            self.control_gripper_partial(pre_grip, duration=2)
-            time.sleep(0.5)
-            self.grasp_attach()
-            time.sleep(0.5)
-            self.control_gripper_partial(grip, duration=2)
-            time.sleep(0.5)
-        else:
-            # Horizontal: attach first, then close to avoid knocking object
-            self.grasp_attach()
-            time.sleep(0.5)
-            self.control_gripper_partial(grip, duration=2)
-            time.sleep(0.5)
+        self.grasp_attach()
+        time.sleep(0.5)
+        # Close to visually hold the object (grip value = snug contact)
+        self.control_gripper_partial(grip, duration=2)
+        time.sleep(0.5)
 
         # 6. Lift
         self.publish_status('Lifting')
@@ -277,11 +267,7 @@ class PickReorientNode(Node):
             self.get_logger().error('Lift failed')
             return
 
-        # 7. Go home (safe config, object attached)
-        self.go_home()
-        time.sleep(0.5)
-
-        # 8. Reorient if needed
+        # 7. Reorient if needed (skip go_home for vertical objects)
         if needs_reorient:
             self.publish_status('Reorienting H->V')
             if not self.move_to_pose(self.make_pose(0.3, 0.0, self.REORIENT_Z, yaw=0.0), duration=2.0):
@@ -341,7 +327,6 @@ class PickReorientNode(Node):
         ]
         return self.move_arm(joints, duration=3.0)
 
-    # ------------------------------------------------------------------
     def grasp_attach(self):
         if not self.attach_srv.wait_for_service(timeout_sec=2.0):
             self.get_logger().warn('grasp_attach not available')
