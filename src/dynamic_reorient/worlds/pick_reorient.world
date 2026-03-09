@@ -6,6 +6,8 @@
       <max_step_size>0.002</max_step_size>
       <real_time_factor>0.5</real_time_factor>
       <real_time_update_rate>250</real_time_update_rate>
+      <!-- <real_time_factor>2.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>  X VELOCITA  -->
     </physics>
 
     <!-- Grasp fix plugin: attach/detach objects to gripper via ROS2 services -->
@@ -519,7 +521,7 @@
     <!-- Red bottle 1 (lying on side) -->
     <!-- Lying: rests on r=0.025, center at TABLE(0.71)+0.025=0.735 -->
     <model name="red_bottle_1">
-      <pose>0.28 0.48 0.735 1.5708 0 0.4</pose>
+      <pose>0.28 0.48 0.735 1.5708 0 0.8</pose>
       <link name="link">
         <inertial><mass>0.15</mass>
           <inertia><ixx>3e-5</ixx><iyy>3e-5</iyy><izz>1e-5</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
@@ -547,7 +549,7 @@
     <model name="red_bottle_2">
       <pose>0.40 0.30 0.77 0 0 0.2</pose>
       <link name="link">
-        <inertial><mass>0.15</mass>
+        <inertial><mass>0.25</mass>
           <inertia><ixx>3e-5</ixx><iyy>3e-5</iyy><izz>1e-5</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
         </inertial>
         <collision name="body">
@@ -573,7 +575,7 @@
     <model name="green_box_1">
       <pose>0.35 0.10 0.76 0 0 0.15</pose>
       <link name="link">
-        <inertial><mass>0.15</mass>
+        <inertial><mass>0.25</mass>
           <inertia><ixx>2e-5</ixx><iyy>2e-5</iyy><izz>1e-5</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
         </inertial>
         <collision name="col">
@@ -592,7 +594,7 @@
     <model name="green_box_2">
       <pose>0.40 -0.10 0.73 0 0 0.7</pose>
       <link name="link">
-        <inertial><mass>0.10</mass>
+        <inertial><mass>0.20</mass>
           <inertia><ixx>1e-5</ixx><iyy>1e-5</iyy><izz>5e-6</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
         </inertial>
         <collision name="col">
@@ -611,7 +613,7 @@
     <model name="blue_cylinder_1">
       <pose>0.25 -0.42 0.73 1.5708 -0.3 0.8</pose>
       <link name="link">
-        <inertial><mass>0.15</mass>
+        <inertial><mass>0.20</mass>
           <inertia><ixx>2e-5</ixx><iyy>2e-5</iyy><izz>1e-5</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
         </inertial>
         <collision name="col">
@@ -630,7 +632,7 @@
     <model name="blue_cylinder_2">
       <pose>0.40 -0.35 0.75 0 0 0</pose>
       <link name="link">
-        <inertial><mass>0.15</mass>
+        <inertial><mass>0.20</mass>
           <inertia><ixx>2e-5</ixx><iyy>2e-5</iyy><izz>1e-5</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
         </inertial>
         <collision name="col">

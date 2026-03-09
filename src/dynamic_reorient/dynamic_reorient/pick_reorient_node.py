@@ -14,6 +14,8 @@ from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+import tf2_ros
+from tf2_ros import TransformException
 
 from geometry_msgs.msg import PoseStamped, Point, Quaternion
 from std_msgs.msg import String
@@ -29,13 +31,34 @@ from builtin_interfaces.msg import Duration
 # Each task: known position, known target, known grip
 # Order: all vertical first, then horizontal
 TASKS = [
+    # === HORIZONTAL OBJECTS ===
+    {
+        'name': 'red_bottle_1 (lying)',
+        'pick': {'x': 0.28, 'y': 0.48, 'z': 0.74},
+        'yaw': 0.8 + 1.5708,  # perpendicular to bottle axis
+        'shape': 'bottle', 'vertical': False,
+        'grip': 0.45,  # same as standing bottle
+        'place': {'x': 0.65, 'y': 0.25},
+        'color': 'red',
+        'reorient': True,
+    },
+    {
+        'name': 'blue_cylinder_1 (lying)',
+        'pick': {'x': 0.25, 'y': -0.42, 'z': 0.73},
+        'yaw': 0.8 + 1.5708,  # perpendicular to cylinder axis
+        'shape': 'cylinder', 'vertical': False,
+        'grip': 0.65,  # gripping 4cm diameter cross-section — needs tight
+        'place': {'x': 0.65, 'y': -0.25},
+        'color': 'blue',
+        'reorient': True,
+    },
     # === VERTICAL OBJECTS FIRST ===
     {
         'name': 'red_bottle_2 (standing)',
-        'pick': {'x': 0.40, 'y': 0.30, 'z': 0.83},
+        'pick': {'x': 0.40, 'y': 0.30, 'z': 0.82},
         'yaw': 0.2,
         'shape': 'bottle', 'vertical': True,
-        'grip': 0.30,  # bottle r=0.025 — gentle contact, no squeeze
+        'grip': 0.45,  # bottle r=0.025 — snug contact
         'place': {'x': 0.55, 'y': 0.25},
         'color': 'red',
     },
@@ -50,19 +73,19 @@ TASKS = [
     },
     {
         'name': 'green_box_2 (small)',
-        'pick': {'x': 0.40, 'y': -0.10, 'z': 0.73},
+        'pick': {'x': 0.40, 'y': -0.10, 'z': 0.76},
         'yaw': 0.7,
         'shape': 'box', 'vertical': True,
-        'grip': 0.35,  # small box 4cm — gentle contact, no squeeze
+        'grip': 0.45,  # small box 4cm — snug contact
         'place': {'x': 0.65, 'y': 0.0},
         'color': 'green',
     },
     {
         'name': 'blue_cylinder_2 (standing)',
-        'pick': {'x': 0.40, 'y': -0.35, 'z': 0.75},
+        'pick': {'x': 0.40, 'y': -0.35, 'z': 0.77},
         'yaw': 0.0,
         'shape': 'cylinder', 'vertical': True,
-        'grip': 0.50,  # cylinder r=0.022, diameter=4.4cm
+        'grip': 0.58,  # cylinder r=0.022, diameter=4.4cm — tighter
         'place': {'x': 0.55, 'y': -0.25},
         'color': 'blue',
     },
@@ -70,7 +93,7 @@ TASKS = [
     {
         'name': 'red_bottle_1 (lying)',
         'pick': {'x': 0.28, 'y': 0.48, 'z': 0.74},
-        'yaw': 0.4 + 1.5708,  # perpendicular to bottle axis
+        'yaw': 0.8 + 1.5708,  # perpendicular to bottle axis
         'shape': 'bottle', 'vertical': False,
         'grip': 0.45,  # same as standing bottle
         'place': {'x': 0.65, 'y': 0.25},
@@ -82,7 +105,7 @@ TASKS = [
         'pick': {'x': 0.25, 'y': -0.42, 'z': 0.73},
         'yaw': 0.8 + 1.5708,  # perpendicular to cylinder axis
         'shape': 'cylinder', 'vertical': False,
-        'grip': 0.50,  # same as standing cylinder
+        'grip': 0.65,  # gripping 4cm diameter cross-section — needs tight
         'place': {'x': 0.65, 'y': -0.25},
         'color': 'blue',
         'reorient': True,
@@ -96,6 +119,7 @@ class PickReorientNode(Node):
     SAFE_Z = 1.05
     REORIENT_Z = 1.15
     FINGER_ABOVE_TCP = 0.030
+    HORIZONTAL_PLACE_BACKOFF = 0.014
 
     CONTAINER_WALL = {'red': 0.08, 'green_big': 0.07, 'green_small': 0.05, 'blue': 0.06}
 
@@ -118,6 +142,9 @@ class PickReorientNode(Node):
         self.task_index = 0
         self.is_busy = False
         self.controllers_ready = False
+
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         self.arm_client = ActionClient(
             self, FollowJointTrajectory,
@@ -185,13 +212,43 @@ class PickReorientNode(Node):
             self.go_home()
         self.is_busy = False
 
+    def _get_current_tcp_pose(self):
+        """Return current TCP pose in world frame as PoseStamped, or None."""
+        try:
+            tf = self.tf_buffer.lookup_transform(
+                'world',
+                'tcp',
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=0.2)
+            )
+        except TransformException as e:
+            self.get_logger().error(f'Cannot read TCP transform: {e}')
+            return None
+
+        pose = PoseStamped()
+        pose.header.frame_id = 'world'
+        pose.header.stamp = self.get_clock().now().to_msg()
+        pose.pose.position = Point(
+            x=tf.transform.translation.x,
+            y=tf.transform.translation.y,
+            z=tf.transform.translation.z
+        )
+        pose.pose.orientation = Quaternion(
+            x=tf.transform.rotation.x,
+            y=tf.transform.rotation.y,
+            z=tf.transform.rotation.z,
+            w=tf.transform.rotation.w
+        )
+        return pose
+
     # ------------------------------------------------------------------
-    def make_pose(self, x, y, z, yaw=0.0):
+    def make_pose(self, x, y, z, yaw=0.0, pitch=None):
         pose = PoseStamped()
         pose.header.frame_id = 'world'
         pose.header.stamp = self.get_clock().now().to_msg()
         pose.pose.position = Point(x=x, y=y, z=z)
-        pitch = np.pi - 0.05
+        if pitch is None:
+            pitch = np.pi  # default: gripper pointing straight down
         q = R.from_euler('xyz', [pitch, 0.0, yaw]).as_quat()
         pose.pose.orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
         return pose
@@ -209,7 +266,11 @@ class PickReorientNode(Node):
         else:
             key = color
         wall_h = self.CONTAINER_WALL.get(key, 0.08)
-        return self.CONTAINER_Z + wall_h + 0.04
+        base = self.CONTAINER_Z + wall_h
+        # Horizontal reoriented objects: release higher to avoid collision
+        if task.get('reorient', False):
+            return base + 0.12
+        return base + 0.055
 
     # ------------------------------------------------------------------
     # MAIN TASK EXECUTION
@@ -267,45 +328,76 @@ class PickReorientNode(Node):
             self.get_logger().error('Lift failed')
             return
 
-        # 7. Reorient if needed (skip go_home for vertical objects)
+        # 7. Reorient if needed: go home first (fixed joints), then tilt wrist
         if needs_reorient:
-            self.publish_status('Reorienting H->V')
-            if not self.move_to_pose(self.make_pose(0.3, 0.0, self.REORIENT_Z, yaw=0.0), duration=2.0):
-                self.get_logger().warn('Reorient lift failed, trying place anyway')
-            else:
-                self._reorient_wrist(tilt=-np.pi/2)
-                time.sleep(0.5)
+            # Go to home position first — this guarantees identical joint config
+            self.publish_status('Going home before reorient')
             self.go_home()
             time.sleep(0.5)
 
-        # 9. Move above container
-        self.publish_status(f'Above {color} container')
-        if not self.move_to_pose(
-            self.make_pose(place['x'], place['y'], self.SAFE_Z, yaw=0.0), duration=2.5):
-            self.get_logger().error('Move above container failed')
-            return
+            # Log joints before tilt for debugging
+            if self.current_joints:
+                jn = list(self.current_joints.name)
+                jp = list(self.current_joints.position)
+                arm_j = {n: f'{jp[jn.index(n)]:.3f}' for n in self.arm_joints if n in jn}
+                self.get_logger().info(f'Pre-reorient joints: {arm_j}')
 
-        # 10. Descend to release
-        insert_z = self._insert_z(task)
-        if not self._move_z(place['x'], place['y'], self.SAFE_Z, insert_z,
-                            yaw=0.0, steps=3, dur=1.0):
-            self.get_logger().error('Container descent failed')
-            return
+            self.publish_status('Reorienting H->V (wrist rotate)')
+            wrist_tilt = -1.58
+            if not self._reorient_wrist(tilt=wrist_tilt):
+                self.get_logger().warn('Wrist reorient failed, trying place anyway')
+                wrist_tilt = 0.0
+            time.sleep(0.5)
 
-        # 11. Release
+            # Move above container with wrist offset preserved
+            self.publish_status(f'Above {color} container (tilted)')
+            place_x = place['x']
+            place_y = place['y']
+            if not self._move_to_pose_tilted(
+                place_x, place_y, self.SAFE_Z,
+                wrist_offset=wrist_tilt, yaw=0.0, duration=2.5):
+                self.get_logger().error('Move above container (tilted) failed')
+                return
+
+            # Descend to release height
+            release_z = self._insert_z(task)
+            if not self._move_to_pose_tilted(
+                place_x, place_y, release_z,
+                wrist_offset=wrist_tilt, yaw=0.0, duration=2.0):
+                self.get_logger().error('Container descent (tilted) failed')
+                return
+        else:
+            # 8. Move above container (gripper pointing down for vertical objects)
+            self.publish_status(f'Above {color} container')
+            if not self.move_to_pose(
+                self.make_pose(place['x'], place['y'], self.SAFE_Z, yaw=0.0),
+                duration=2.5):
+                self.get_logger().error('Move above container failed')
+                return
+
+            # 9. Descend to release
+            insert_z = self._insert_z(task)
+            if not self._move_z(place['x'], place['y'], self.SAFE_Z, insert_z,
+                                yaw=0.0, steps=3, dur=1.0):
+                self.get_logger().error('Container descent failed')
+                return
+
+        # 8. Release
         self.grasp_detach()
         time.sleep(0.3)
         self.control_gripper(open_gripper=True)
         time.sleep(0.5)
 
-        # 12. Retract
+        # 9. Retract above container
+        retract_x = place_x if needs_reorient else place['x']
+        retract_y = place_y if needs_reorient else place['y']
         self.move_to_pose(
-            self.make_pose(place['x'], place['y'], self.SAFE_Z, yaw=0.0), duration=1.5)
-        self.go_home()
+            self.make_pose(retract_x, retract_y, self.SAFE_Z, yaw=0.0), duration=1.5)
         self.publish_status(f'Done: {task["name"]}')
 
     # ------------------------------------------------------------------
     def _reorient_wrist(self, tilt=-np.pi/2):
+        """Rotate only wrist_1_joint by `tilt`, keeping all other joints fixed."""
         if self.current_joints is None:
             return False
         jnames = list(self.current_joints.name)
@@ -326,6 +418,67 @@ class PickReorientNode(Node):
             get_j('wrist_3_joint'),
         ]
         return self.move_arm(joints, duration=3.0)
+
+    def _solve_ik_joints(self, target):
+        """Solve IK and return joint positions list, or None on failure."""
+        if not self.ik_client.wait_for_service(timeout_sec=2.0):
+            return None
+
+        req = GetPositionIK.Request()
+        req.ik_request.group_name = 'arm'
+        req.ik_request.ik_link_name = 'tcp'
+        req.ik_request.pose_stamped = target
+        req.ik_request.timeout.sec = 5
+        req.ik_request.avoid_collisions = False
+
+        if self.last_arm_seed is not None:
+            arm_js = JointState()
+            arm_js.name = list(self.arm_joints)
+            arm_js.position = list(self.last_arm_seed)
+            req.ik_request.robot_state.joint_state = arm_js
+        elif self.current_joints is not None:
+            arm_js = JointState()
+            arm_js.header = self.current_joints.header
+            for i, name in enumerate(self.current_joints.name):
+                if name in self.arm_joints:
+                    arm_js.name.append(name)
+                    arm_js.position.append(self.current_joints.position[i])
+            req.ik_request.robot_state.joint_state = arm_js
+
+        try:
+            result = self.ik_client.call(req)
+        except Exception:
+            return None
+
+        if result is None or result.error_code.val != MoveItErrorCodes.SUCCESS:
+            return None
+
+        positions = []
+        for jn in self.arm_joints:
+            if jn in result.solution.joint_state.name:
+                idx = result.solution.joint_state.name.index(jn)
+                positions.append(result.solution.joint_state.position[idx])
+        return positions if len(positions) == 6 else None
+
+    def _move_to_pose_tilted(self, x, y, z, wrist_offset, yaw=0.0, duration=3.0):
+        """Move keeping wrist orientation visually fixed after reorient."""
+        current_tcp = self._get_current_tcp_pose()
+        if current_tcp is None:
+            return False
+
+        target = PoseStamped()
+        target.header.frame_id = 'world'
+        target.header.stamp = self.get_clock().now().to_msg()
+        target.pose.position = Point(x=x, y=y, z=z)
+        target.pose.orientation = current_tcp.pose.orientation
+
+        joints = self._solve_ik_joints(target)
+        if joints is None:
+            self.get_logger().error(
+                f'IK failed for tilted move to ({x:.3f},{y:.3f},{z:.3f})')
+            return False
+
+        return self.move_arm(joints, duration=duration)
 
     def grasp_attach(self):
         if not self.attach_srv.wait_for_service(timeout_sec=2.0):

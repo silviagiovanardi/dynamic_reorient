@@ -1,38 +1,40 @@
 # Dynamic Pick & Reorient
 
-A ROS2 robotics project for autonomous manipulation of cylindrical and irregular objects with 6D pose estimation and dynamic reorientation.
+A ROS2 robotics project for autonomous pick-and-place of heterogeneous objects (bottles, boxes, cylinders) with vision-based 6D pose estimation and dynamic reorientation of horizontal objects into vertical placement.
 
 ## Project Overview
 
 This project implements a robot capable of:
-1. **Detecting objects** on a table using RGB-D camera
-2. **Estimating 6D pose** of cylindrical/irregular objects
-3. **Planning grasps** considering object orientation
-4. **Reorienting objects** mid-air through waypoint-based trajectory
-5. **Inserting objects** into precise slots while maintaining orientation constraints
+1. **Detecting objects** on a table using an overhead RGB-D camera
+2. **Estimating 6D pose** via color segmentation, shape classification (bottle/box/cylinder), and orientation detection (vertical vs horizontal)
+3. **Planning grasps** with per-object grip width and approach yaw
+4. **Reorienting horizontal objects** mid-air through wrist joint rotation
+5. **Placing objects** into color-coded containers with precise descent
 
 ### Hardware (Simulated)
-- **Robot:** ABB IRB4600 (6-DOF industrial manipulator)
+- **Robot:** Universal Robots UR5 (6-DOF manipulator)
 - **Gripper:** Robotiq 2F-85 parallel gripper
-- **Sensor:** RGB-D camera (simulated depth camera)
+- **Sensor:** Overhead RGB-D camera (640x480, 15 Hz)
 
 ### Software Stack
-- ROS2 (Humble/Iron)
-- Gazebo (Classic or Ignition)
-- MoveIt2
-- OpenCV for vision processing
+- ROS2 Humble
+- Gazebo Classic
+- MoveIt2 (IK solver via `compute_ik` service)
+- OpenCV + SciPy for vision processing
+- `gazebo_ros2_control` for joint trajectory controllers
+- Custom Gazebo grasp plugin (`grasp_attach` / `grasp_detach` services)
 
 ## Installation
 
 ### Prerequisites
 ```bash
-# ROS2 (example for Humble on Ubuntu 22.04)
+# ROS2 Humble on Ubuntu 22.04
 sudo apt install ros-humble-desktop
 
 # MoveIt2
 sudo apt install ros-humble-moveit
 
-# Gazebo
+# Gazebo + ros2_control
 sudo apt install ros-humble-gazebo-ros-pkgs ros-humble-gazebo-ros2-control
 
 # Additional dependencies
@@ -44,12 +46,6 @@ sudo apt install ros-humble-controller-manager \
 
 ### Build
 ```bash
-# Create workspace
-mkdir -p ~/dynamic_reorient_ws/src
-cd ~/dynamic_reorient_ws/src
-
-# Clone or copy the packages here
-# Then build
 cd ~/dynamic_reorient_ws
 rosdep install --from-paths src --ignore-src -r -y
 colcon build --symlink-install
@@ -62,19 +58,20 @@ source install/setup.bash
 ```bash
 ros2 launch dynamic_reorient demo.launch.py
 ```
+This launches Gazebo, MoveIt, the pose estimator, and the pick & reorient node with appropriate delays.
 
 ### Step by Step
 ```bash
-# Terminal 1: Launch Gazebo simulation
-ros2 launch dynamic_reorient_gazebo gazebo.launch.py
+# Terminal 1: Gazebo simulation + controllers
+ros2 launch dynamic_reorient gazebo.launch.py
 
-# Terminal 2: Launch MoveIt
-ros2 launch dynamic_reorient_moveit move_group.launch.py
+# Terminal 2: MoveIt2 (move_group + RViz)
+ros2 launch dynamic_reorient moveit.launch.py
 
-# Terminal 3: Launch pose estimator
+# Terminal 3: Pose estimator (vision node)
 ros2 run dynamic_reorient pose_estimator
 
-# Terminal 4: Launch pick and reorient node
+# Terminal 4: Pick & reorient node
 ros2 run dynamic_reorient pick_reorient_node
 ```
 
@@ -83,100 +80,111 @@ ros2 run dynamic_reorient pick_reorient_node
 ```
 ┌─────────────────┐     ┌──────────────────┐
 │   RGB-D Camera  │────▶│  Pose Estimator  │
+│  /camera/*      │     │  (color + shape) │
 └─────────────────┘     └────────┬─────────┘
-                                 │ /detected_object_pose
+                                 │ /detected_objects
+                                 │ /detected_markers
                                  ▼
-┌─────────────────┐     ┌──────────────────┐
-│     Gazebo      │◀───▶│ Pick & Reorient  │
-│   Simulation    │     │      Node        │
-└─────────────────┘     └────────┬─────────┘
-                                 │
-                                 ▼
-                        ┌──────────────────┐
-                        │     MoveIt2      │
-                        │  Motion Planning │
-                        └──────────────────┘
+┌─────────────────┐     ┌──────────────────┐     ┌──────────────┐
+│     Gazebo      │◀───▶│ Pick & Reorient  │────▶│   MoveIt2    │
+│   Simulation    │     │      Node        │     │  /compute_ik │
+└────────┬────────┘     └──────────────────┘     └──────────────┘
+         │                   │         │
+         │  grasp_attach/    │         │ /arm_controller
+         │  grasp_detach     │         │ /gripper_controller
+         └───────────────────┘         └──────────────────────▶ ros2_control
 ```
 
 ## Key Features
 
-### 6D Pose Estimation
-- Color-based object segmentation
-- Ellipse fitting for orientation estimation
-- Depth-based 3D position reconstruction
-- Camera-to-base frame transformation
+### 6D Pose Estimation (`pose_estimator`)
+- HSV color-based segmentation for red (bottles), green (boxes), blue (cylinders)
+- Shape classification via contour analysis (aspect ratio, solidity, circularity)
+- Vertical vs horizontal orientation detection from top-down camera view
+- Depth-based 3D back-projection with camera-to-world TF transformation
+- Container exclusion filtering to avoid false detections on drop-off bins
+- Debug image stream on `/pose_estimator/debug` for visualization
+
+### Pick & Place Pipeline (`pick_reorient_node`)
+- Task-based execution: processes vertical objects first, then horizontal
+- Per-object grasp parameters: approach yaw, grip width, pick height
+- Incremental Cartesian descent via IK-solved waypoints (`_move_z`)
+- IK seed continuity for smooth joint-space trajectories
+- Grasp attach/detach via Gazebo plugin services for reliable object holding
 
 ### Dynamic Reorientation
-- SLERP-based orientation interpolation
-- Waypoint generation for smooth rotation
-- Orientation constraints during motion
-- Path planning with collision avoidance
+- Horizontal-to-vertical reorientation via wrist_1_joint rotation (-90°)
+- Orientation-preserving Cartesian moves after reorient (`_move_to_pose_tilted`)
+- Tilted placement with configurable backoff for container insertion
 
-### Slot Insertion
-- Precise positioning for narrow slots
-- Vertical orientation maintenance
-- Cartesian path planning for insertion
+### Container Placement
+- Color-coded containers (red, green, blue) with per-container wall height offsets
+- Configurable insert height accounting for container walls and object type
+- Smooth multi-step descent into containers
 
 ## Configuration
 
 ### Object Detection
 Edit `pose_estimator.py` to adjust:
-- Color ranges (HSV thresholds)
-- Minimum/maximum object area
-- Detection rate
+- HSV color ranges per object class
+- Minimum/maximum contour area thresholds
+- Container exclusion positions and radius
+- Detection rate (default: 2 Hz)
 
 ### Motion Planning
 Edit `config/ompl_planning.yaml` for:
-- Planner selection (RRTConnect, RRT*, etc.)
+- Planner selection (RRTConnect, RRT*, PRM)
 - Planning time limits
-- Path constraints
+- Arm group projection evaluator
+
+Edit `config/kinematics.yaml` for:
+- IK solver plugin (default: LMAKinematicsPlugin)
+- Solver timeout and attempts
 
 ### Controller Tuning
-Edit `config/controllers.yaml` for:
-- PID gains
-- Velocity/acceleration limits
-- Trajectory tolerances
+Edit `config/ur5_controllers.yaml` for:
+- Controller update rate (default: 100 Hz)
+- Joint trajectory goal tolerances
+- State publish rates
 
 ## Troubleshooting
 
 ### Gazebo not starting
 ```bash
-# Kill any existing Gazebo processes
 killall gzserver gzclient
-# Try again
-ros2 launch dynamic_reorient_gazebo gazebo.launch.py
+ros2 launch dynamic_reorient gazebo.launch.py
 ```
 
-### MoveIt planning failures
-- Check joint limits in `joint_limits.yaml`
-- Verify SRDF collision pairs
-- Increase planning time in OMPL config
+### Controllers not activating
+The controllers are activated 15 seconds after launch. If Gazebo is slow to load:
+```bash
+# Check if controller_manager is running
+ros2 service list | grep controller_manager
+
+# Manually activate controllers
+ros2 control load_controller --set-state active joint_state_broadcaster
+ros2 control load_controller --set-state active arm_controller
+ros2 control load_controller --set-state active gripper_controller
+
+# Verify
+ros2 control list_controllers
+```
+
+### MoveIt IK failures
+- Check joint limits in `config/joint_limits.yaml`
+- Verify SRDF collision pairs in `config/ur5_gripper.srdf`
+- The node uses `avoid_collisions = False` for IK — collisions are managed by task sequencing
 
 ### Camera not publishing
-- Check topic names in launch files
-- Verify Gazebo camera plugin configuration
-
-## Future Improvements
-
-1. **Machine Learning Integration**
-   - Train pose estimation network (e.g., PoseCNN, DenseFusion)
-   - Reinforcement learning for grasp optimization
-
-2. **Advanced Manipulation**
-   - Force/torque feedback for grasp verification
-   - Slip detection and recovery
-   - Multi-object manipulation
-
-3. **Real Robot Deployment**
-   - Hardware interface for ABB controller
-   - Real camera calibration
-   - Safety monitoring
+- Verify topics: `/camera/image_raw`, `/camera/depth/image_raw`, `/camera/camera_info`
+- Check Gazebo camera plugin in the URDF xacro
 
 ## References
 
 - [MoveIt2 Documentation](https://moveit.ros.org/)
 - [Gazebo Tutorials](https://gazebosim.org/docs)
 - [ROS2 Control](https://control.ros.org/)
+- [Universal Robots ROS2 Description](https://github.com/UniversalRobots/Universal_Robots_ROS2_Description)
 - Original inspiration: [TrashThrower Project](https://github.com/davidedavo/smart_robotics)
 
 ## License
