@@ -31,28 +31,16 @@ from builtin_interfaces.msg import Duration
 # Each task: known position, known target, known grip
 # Order: all vertical first, then horizontal
 TASKS = [
-    # === HORIZONTAL OBJECTS ===
+    # === VERTICAL OBJECTS ===
     {
-        'name': 'red_bottle_1 (lying)',
-        'pick': {'x': 0.28, 'y': 0.48, 'z': 0.74},
-        'yaw': 0.8 + 1.5708,  # perpendicular to bottle axis
-        'shape': 'bottle', 'vertical': False,
-        'grip': 0.45,  # same as standing bottle
+        'name': 'red_bottle_1 (standing)',
+        'pick': {'x': 0.28, 'y': 0.48, 'z': 0.82},
+        'yaw': 0.2,
+        'shape': 'bottle', 'vertical': True,
+        'grip': 0.45,
         'place': {'x': 0.65, 'y': 0.25},
         'color': 'red',
-        'reorient': True,
     },
-    {
-        'name': 'blue_cylinder_1 (lying)',
-        'pick': {'x': 0.25, 'y': -0.42, 'z': 0.73},
-        'yaw': 0.8 + 1.5708,  # perpendicular to cylinder axis
-        'shape': 'cylinder', 'vertical': False,
-        'grip': 0.65,  # gripping 4cm diameter cross-section — needs tight
-        'place': {'x': 0.65, 'y': -0.25},
-        'color': 'blue',
-        'reorient': True,
-    },
-    # === VERTICAL OBJECTS FIRST ===
     {
         'name': 'red_bottle_2 (standing)',
         'pick': {'x': 0.40, 'y': 0.30, 'z': 0.82},
@@ -89,17 +77,7 @@ TASKS = [
         'place': {'x': 0.55, 'y': -0.25},
         'color': 'blue',
     },
-    # === HORIZONTAL OBJECTS ===
-    {
-        'name': 'red_bottle_1 (lying)',
-        'pick': {'x': 0.28, 'y': 0.48, 'z': 0.74},
-        'yaw': 0.8 + 1.5708,  # perpendicular to bottle axis
-        'shape': 'bottle', 'vertical': False,
-        'grip': 0.45,  # same as standing bottle
-        'place': {'x': 0.65, 'y': 0.25},
-        'color': 'red',
-        'reorient': True,
-    },
+    # === HORIZONTAL OBJECT ===
     {
         'name': 'blue_cylinder_1 (lying)',
         'pick': {'x': 0.25, 'y': -0.42, 'z': 0.73},

@@ -518,10 +518,10 @@
     <!--   1 blue cylinder, 1 green box (small)       -->
     <!-- ============================================ -->
 
-    <!-- Red bottle 1 (lying on side) -->
-    <!-- Lying: rests on r=0.025, center at TABLE(0.71)+0.025=0.735 -->
+    <!-- Red bottle 1 (standing) -->
+    <!-- Standing: center at TABLE(0.71)+0.06=0.77 -->
     <model name="red_bottle_1">
-      <pose>0.28 0.48 0.735 1.5708 0 0.8</pose>
+      <pose>0.28 0.48 0.77 0 0 0.2</pose>
       <link name="link">
         <inertial><mass>0.15</mass>
           <inertia><ixx>3e-5</ixx><iyy>3e-5</iyy><izz>1e-5</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
