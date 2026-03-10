@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-Pick and Reorient Node - DETERMINISTIC approach.
+Pick and Reorient Node - Vision-driven with deterministic fallback.
 
-Uses KNOWN object positions from the world file.
-Objects are processed in a fixed order: vertical first, horizontal last.
+Subscribes to /detected_objects from the pose_estimator to build a task list
+from real-time vision detections. Falls back to known positions if the
+pose_estimator is not running or finds no objects.
+
+Objects are processed in order: vertical first, then horizontal (reorient).
 Uses grasp_attach to lock objects to gripper reliably.
 """
 import time
@@ -28,9 +31,30 @@ from moveit_msgs.msg import MoveItErrorCodes
 from builtin_interfaces.msg import Duration
 
 
-# Each task: known position, known target, known grip
-# Order: all vertical first, then horizontal
-TASKS = [
+# ---------------------------------------------------------------------------
+# Default grasp parameters per shape (used when building tasks from vision)
+# ---------------------------------------------------------------------------
+SHAPE_DEFAULTS = {
+    'bottle': {'grip': 0.45, 'z_offset': 0.005},
+    'box':    {'grip': 0.44, 'z_offset': 0.005},
+    'cylinder': {'grip': 0.58, 'z_offset': 0.005},
+}
+# Horizontal objects need tighter grip on the cross-section
+SHAPE_DEFAULTS_H = {
+    'bottle': {'grip': 0.55, 'z_offset': 0.005},
+    'box':    {'grip': 0.50, 'z_offset': 0.005},
+    'cylinder': {'grip': 0.65, 'z_offset': 0.005},
+}
+
+# Container placement targets per color (two slots each)
+CONTAINER_SLOTS = {
+    'red':   [{'x': 0.65, 'y': 0.25}, {'x': 0.55, 'y': 0.25}],
+    'green': [{'x': 0.55, 'y': 0.0},  {'x': 0.65, 'y': 0.0}],
+    'blue':  [{'x': 0.55, 'y': -0.25}, {'x': 0.65, 'y': -0.25}],
+}
+
+# Fallback task list — used only when vision produces no detections
+FALLBACK_TASKS = [
     # === VERTICAL OBJECTS ===
     {
         'name': 'red_bottle_1 (standing)',
@@ -46,7 +70,7 @@ TASKS = [
         'pick': {'x': 0.40, 'y': 0.30, 'z': 0.82},
         'yaw': 0.2,
         'shape': 'bottle', 'vertical': True,
-        'grip': 0.45,  # bottle r=0.025 — snug contact
+        'grip': 0.45,
         'place': {'x': 0.55, 'y': 0.25},
         'color': 'red',
     },
@@ -55,7 +79,7 @@ TASKS = [
         'pick': {'x': 0.35, 'y': 0.10, 'z': 0.79},
         'yaw': 0.15,
         'shape': 'box', 'vertical': True,
-        'grip': 0.42,  # box 5cm wide
+        'grip': 0.42,
         'place': {'x': 0.55, 'y': 0.0},
         'color': 'green',
     },
@@ -64,7 +88,7 @@ TASKS = [
         'pick': {'x': 0.40, 'y': -0.10, 'z': 0.76},
         'yaw': 0.7,
         'shape': 'box', 'vertical': True,
-        'grip': 0.45,  # small box 4cm — snug contact
+        'grip': 0.45,
         'place': {'x': 0.65, 'y': 0.0},
         'color': 'green',
     },
@@ -73,7 +97,7 @@ TASKS = [
         'pick': {'x': 0.40, 'y': -0.35, 'z': 0.77},
         'yaw': 0.0,
         'shape': 'cylinder', 'vertical': True,
-        'grip': 0.58,  # cylinder r=0.022, diameter=4.4cm — tighter
+        'grip': 0.58,
         'place': {'x': 0.55, 'y': -0.25},
         'color': 'blue',
     },
@@ -81,9 +105,9 @@ TASKS = [
     {
         'name': 'blue_cylinder_1 (lying)',
         'pick': {'x': 0.25, 'y': -0.42, 'z': 0.73},
-        'yaw': 0.8 + 1.5708,  # perpendicular to cylinder axis
+        'yaw': 0.8 + 1.5708,
         'shape': 'cylinder', 'vertical': False,
-        'grip': 0.65,  # gripping 4cm diameter cross-section — needs tight
+        'grip': 0.65,
         'place': {'x': 0.65, 'y': -0.25},
         'color': 'blue',
         'reorient': True,
@@ -100,6 +124,11 @@ class PickReorientNode(Node):
     HORIZONTAL_PLACE_BACKOFF = 0.014
 
     CONTAINER_WALL = {'red': 0.08, 'green_big': 0.07, 'green_small': 0.05, 'blue': 0.06}
+
+    # Duration (seconds) to collect vision detections before building task list
+    VISION_COLLECT_SEC = 8.0
+    # Minimum distance (m) to consider two detections as the same object
+    CLUSTER_RADIUS = 0.06
 
     def __init__(self):
         super().__init__('pick_reorient_node')
@@ -121,6 +150,13 @@ class PickReorientNode(Node):
         self.is_busy = False
         self.controllers_ready = False
 
+        # Vision integration state
+        self._raw_detections = []       # list of dicts from vision callback
+        self._vision_collecting = True  # True while collecting detections
+        self._vision_start_time = None  # set when first detection arrives
+        self._tasks = None              # built task list (vision or fallback)
+        self._container_slot_idx = {}   # tracks next slot per color
+
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
@@ -140,10 +176,14 @@ class PickReorientNode(Node):
             SetBool, '/grasp_detach', callback_group=self.cb_group)
 
         self.create_subscription(JointState, '/joint_states', self.joint_cb, 10)
+        # Subscribe to pose_estimator detections
+        self.create_subscription(
+            PoseStamped, '/detected_objects', self._vision_cb, 10)
         self.status_pub = self.create_publisher(String, '/pick_reorient/status', 10)
 
         self.create_timer(5.0, self.main_loop)
-        self.get_logger().info('Pick & Reorient Node started (DETERMINISTIC)')
+        self.get_logger().info(
+            'Pick & Reorient Node started (vision-driven, fallback to known positions)')
 
         self._home_timer = self.create_timer(
             5.0, self._go_home_once, callback_group=self.cb_group)
@@ -169,15 +209,192 @@ class PickReorientNode(Node):
         self.publish_status('Moving to home')
         self.move_arm([0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0], 3.0)
 
+    # ------------------------------------------------------------------
+    # Vision integration
+    # ------------------------------------------------------------------
+    def _vision_cb(self, msg: PoseStamped):
+        """Accumulate detections from pose_estimator during collection window."""
+        if not self._vision_collecting:
+            return
+
+        # Parse frame_id: "world::color::shape::V_or_H"
+        parts = msg.header.frame_id.split('::')
+        if len(parts) != 4:
+            return
+        _, color, shape, orient = parts
+        is_vertical = (orient == 'V')
+
+        # Extract yaw from orientation quaternion
+        q = msg.pose.orientation
+        rot = R.from_quat([q.x, q.y, q.z, q.w])
+        yaw = rot.as_euler('xyz')[2]
+
+        detection = {
+            'x': msg.pose.position.x,
+            'y': msg.pose.position.y,
+            'z': msg.pose.position.z,
+            'yaw': float(yaw),
+            'color': color,
+            'shape': shape,
+            'vertical': is_vertical,
+        }
+        self._raw_detections.append(detection)
+
+        if self._vision_start_time is None:
+            self._vision_start_time = time.time()
+            self.get_logger().info(
+                f'Vision: first detection received, collecting for '
+                f'{self.VISION_COLLECT_SEC}s...')
+
+    def _build_tasks_from_vision(self):
+        """Cluster raw detections and build a task list. Returns list or None."""
+        if not self._raw_detections:
+            return None
+
+        # Group detections by (color, shape, vertical) then cluster by position
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for d in self._raw_detections:
+            key = (d['color'], d['shape'], d['vertical'])
+            groups[key].append(d)
+
+        objects = []
+        for (color, shape, vertical), detections in groups.items():
+            # Cluster by spatial proximity
+            clusters = []
+            for d in detections:
+                pos = np.array([d['x'], d['y'], d['z']])
+                merged = False
+                for c in clusters:
+                    centroid = np.mean(
+                        [[p['x'], p['y'], p['z']] for p in c], axis=0)
+                    if np.linalg.norm(pos - centroid) < self.CLUSTER_RADIUS:
+                        c.append(d)
+                        merged = True
+                        break
+                if not merged:
+                    clusters.append([d])
+
+            for cluster in clusters:
+                # Use median position for robustness
+                xs = [d['x'] for d in cluster]
+                ys = [d['y'] for d in cluster]
+                zs = [d['z'] for d in cluster]
+                yaws = [d['yaw'] for d in cluster]
+                objects.append({
+                    'color': color,
+                    'shape': shape,
+                    'vertical': vertical,
+                    'x': float(np.median(xs)),
+                    'y': float(np.median(ys)),
+                    'z': float(np.median(zs)),
+                    'yaw': float(np.median(yaws)),
+                    'n_detections': len(cluster),
+                })
+
+        if not objects:
+            return None
+
+        # Sort: vertical first, then horizontal
+        objects.sort(key=lambda o: (0 if o['vertical'] else 1, o['color']))
+
+        # Build task list with per-shape grasp parameters
+        self._container_slot_idx = {}
+        tasks = []
+        for obj in objects:
+            color = obj['color']
+            shape = obj['shape']
+            vertical = obj['vertical']
+
+            # Select grasp parameters based on orientation
+            defaults = SHAPE_DEFAULTS if vertical else SHAPE_DEFAULTS_H
+            params = defaults.get(shape, {'grip': 0.50, 'z_offset': 0.005})
+
+            # Assign container slot
+            slot_idx = self._container_slot_idx.get(color, 0)
+            slots = CONTAINER_SLOTS.get(color, [{'x': 0.60, 'y': 0.0}])
+            place = slots[min(slot_idx, len(slots) - 1)]
+            self._container_slot_idx[color] = slot_idx + 1
+
+            orient_str = 'V' if vertical else 'H'
+            needs_reorient = not vertical
+
+            # For horizontal objects, yaw needs +90° to grip perpendicular
+            yaw = obj['yaw']
+            if not vertical:
+                yaw = yaw + np.pi / 2
+
+            task = {
+                'name': f'{color}_{shape} ({orient_str}) [vision]',
+                'pick': {'x': obj['x'], 'y': obj['y'], 'z': obj['z']},
+                'yaw': yaw,
+                'shape': shape,
+                'vertical': vertical,
+                'grip': params['grip'],
+                'place': place,
+                'color': color,
+            }
+            if needs_reorient:
+                task['reorient'] = True
+
+            tasks.append(task)
+
+        return tasks
+
+    def _finalize_task_list(self):
+        """End vision collection, build tasks or fall back."""
+        self._vision_collecting = False
+        tasks = self._build_tasks_from_vision()
+
+        if tasks:
+            self._tasks = tasks
+            self.get_logger().info(
+                f'Vision: built {len(tasks)} tasks from '
+                f'{len(self._raw_detections)} raw detections')
+            for i, t in enumerate(tasks):
+                self.get_logger().info(
+                    f'  Task {i}: {t["name"]} at '
+                    f'({t["pick"]["x"]:.3f}, {t["pick"]["y"]:.3f}, '
+                    f'{t["pick"]["z"]:.3f})')
+        else:
+            self._tasks = list(FALLBACK_TASKS)
+            self.get_logger().warn(
+                'Vision: no detections received, using fallback task list '
+                f'({len(self._tasks)} tasks)')
+
+    # ------------------------------------------------------------------
     def main_loop(self):
         if not self.controllers_ready or self.is_busy:
             return
-        if self.task_index >= len(TASKS):
+
+        # Still collecting vision data?
+        if self._vision_collecting:
+            if (self._vision_start_time is not None and
+                    time.time() - self._vision_start_time >= self.VISION_COLLECT_SEC):
+                self._finalize_task_list()
+            elif (self._vision_start_time is None and
+                  self.controllers_ready):
+                # No detections at all yet — give the pose_estimator some time
+                # After 2 full main_loop cycles (10s) with no detections, fall back
+                if not hasattr(self, '_fallback_deadline'):
+                    self._fallback_deadline = time.time() + 15.0
+                    self.get_logger().info(
+                        'Vision: waiting for pose_estimator detections...')
+                elif time.time() > self._fallback_deadline:
+                    self.get_logger().warn(
+                        'Vision: no detections after timeout, using fallback')
+                    self._finalize_task_list()
+            return
+
+        if self._tasks is None:
+            return
+
+        if self.task_index >= len(self._tasks):
             self.get_logger().info('All tasks done!', throttle_duration_sec=30.0)
             return
 
         self.is_busy = True
-        task = TASKS[self.task_index]
+        task = self._tasks[self.task_index]
         try:
             self.execute_task(task)
             self.task_index += 1

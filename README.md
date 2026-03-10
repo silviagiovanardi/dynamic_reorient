@@ -82,12 +82,12 @@ ros2 run dynamic_reorient pick_reorient_node
 │   RGB-D Camera  │────▶│  Pose Estimator  │
 │  /camera/*      │     │  (color + shape) │
 └─────────────────┘     └────────┬─────────┘
-                                 │ /detected_objects
-                                 │ /detected_markers
+                                 │ /detected_objects (PoseStamped)
+                                 │ /detected_markers (MarkerArray)
                                  ▼
 ┌─────────────────┐     ┌──────────────────┐     ┌──────────────┐
 │     Gazebo      │◀───▶│ Pick & Reorient  │────▶│   MoveIt2    │
-│   Simulation    │     │      Node        │     │  /compute_ik │
+│   Simulation    │     │ (vision-driven)  │     │  /compute_ik │
 └────────┬────────┘     └──────────────────┘     └──────────────┘
          │                   │         │
          │  grasp_attach/    │         │ /arm_controller
@@ -105,9 +105,13 @@ ros2 run dynamic_reorient pick_reorient_node
 - Container exclusion filtering to avoid false detections on drop-off bins
 - Debug image stream on `/pose_estimator/debug` for visualization
 
-### Pick & Place Pipeline (`pick_reorient_node`)
-- Task-based execution: processes vertical objects first, then horizontal
-- Per-object grasp parameters: approach yaw, grip width, pick height
+### Vision-Driven Pick & Place Pipeline (`pick_reorient_node`)
+- **Closed-loop vision→pick**: subscribes to `/detected_objects` from the pose estimator
+- Accumulates detections over a configurable time window (default 8s), then clusters by spatial proximity to deduplicate
+- Automatically builds a task list with per-shape grasp parameters (grip width, approach yaw) from vision data
+- Assigns container placement slots per color dynamically
+- **Deterministic fallback**: if the pose estimator is unavailable or detects no objects, falls back to known object positions from the world file
+- Processes vertical objects first, then horizontal (reorient) — sorted automatically from vision
 - Incremental Cartesian descent via IK-solved waypoints (`_move_z`)
 - IK seed continuity for smooth joint-space trajectories
 - Grasp attach/detach via Gazebo plugin services for reliable object holding
