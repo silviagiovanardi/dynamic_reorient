@@ -26,9 +26,7 @@
   <!-- Mesh paths -->
   <xacro:property name="mesh_dir" value="package://dynamic_reorient/meshes/robotiq"/>
 
-  <!-- ============================================ -->
   <!-- ROBOTIQ 2F-85 GRIPPER                       -->
-  <!-- ============================================ -->
 
   <link name="gripper_base_link">
     <visual>
@@ -51,7 +49,6 @@
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </joint>
 
-  <!-- LEFT OUTER KNUCKLE (actuated) -->
   <link name="left_outer_knuckle">
     <visual>
       <geometry><mesh filename="${mesh_dir}/outer_knuckle_fine.STL"/></geometry>
@@ -75,7 +72,6 @@
     <dynamics damping="1.0" friction="0.1"/>
   </joint>
 
-  <!-- LEFT OUTER FINGER -->
   <link name="left_outer_finger">
     <visual>
       <geometry><mesh filename="${mesh_dir}/outer_finger_fine.STL"/></geometry>
@@ -250,9 +246,6 @@
     <origin xyz="0 0 0.14" rpy="0 0 0"/>
   </joint>
 
-  <!-- ============================================ -->
-  <!-- OVERHEAD CAMERA                              -->
-  <!-- ============================================ -->
   <link name="camera_support">
     <visual>
       <geometry><cylinder radius="0.008" length="0.25"/></geometry>
@@ -305,18 +298,11 @@
     <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
   </joint>
 
-  <!-- ============================================ -->
-  <!-- SINGLE UNIFIED ROS2_CONTROL (arm + gripper) -->
-  <!-- Since sim_gazebo=false, UR macro does NOT    -->
-  <!-- create any ros2_control block. We define     -->
-  <!-- everything here: all 6 arm joints + gripper. -->
-  <!-- ============================================ -->
   <ros2_control name="GazeboSystem" type="system">
     <hardware>
       <plugin>gazebo_ros2_control/GazeboSystem</plugin>
     </hardware>
 
-    <!-- UR5 arm joints -->
     <joint name="shoulder_pan_joint">
       <command_interface name="position"/>
       <state_interface name="position">
@@ -360,9 +346,6 @@
       <state_interface name="velocity"/>
     </joint>
 
-    <!-- Gripper joints: all directly commanded (no mimic params here
-         to avoid gazebo_ros2_control renaming them with _mimic suffix).
-         The node sends the correct mimic-derived values for each joint. -->
     <joint name="finger_joint">
       <command_interface name="position"/>
       <state_interface name="position">
@@ -398,9 +381,6 @@
 
   </ros2_control>
 
-  <!-- Single gazebo_ros2_control plugin.
-       robot_param defaults to "robot_description", which robot_state_publisher
-       has already published — so the plugin finds it correctly. -->
   <xacro:property name="dyn_share" value="$(find-pkg-share dynamic_reorient)"/>
   <gazebo>
     <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
@@ -408,9 +388,6 @@
     </plugin>
   </gazebo>
 
-  <!-- ============================================ -->
-  <!-- GAZEBO CAMERA SENSOR                        -->
-  <!-- ============================================ -->
   <gazebo reference="camera_link">
     <sensor name="rgbd_camera" type="depth">
       <always_on>true</always_on>
@@ -435,7 +412,6 @@
     <material>Gazebo/Black</material>
   </gazebo>
 
-  <!-- Gazebo materials and friction (stabilized contact params) -->
   <gazebo reference="left_inner_finger">
     <mu1>6</mu1><mu2>6</mu2>
     <kp>60000</kp><kd>20</kd>

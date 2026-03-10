@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -49,7 +48,6 @@ def generate_launch_description():
         ],
     )
 
-    # Camera debug view — shows what the pose estimator sees
     camera_view = TimerAction(
         period=16.0,
         actions=[

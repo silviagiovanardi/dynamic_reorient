@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-"""
-Pose Estimator - Detects objects by COLOR + SHAPE and estimates 6-DOF pose.
-Supports: bottle (red), box (green), cylinder (blue) with orientation detection.
-Publishes detected object poses to /detected_objects and visualization markers.
-"""
 import rclpy
 from rclpy.node import Node
 import cv2
@@ -20,7 +14,6 @@ from tf2_ros import TransformException
 
 class PoseEstimator(Node):
 
-    # Table surface height and tolerance for filtering detections
     TABLE_Z_MIN = 0.70
     TABLE_Z_MAX = 0.95
 
@@ -77,7 +70,6 @@ class PoseEstimator(Node):
             'blue': 'cylinder',
         }
 
-        # Map each color to its target bin (for downstream use)
         self.color_to_bin = {
             'red': 'plastic',
             'green': 'paper',
@@ -94,14 +86,9 @@ class PoseEstimator(Node):
         self.marker_pub = self.create_publisher(MarkerArray, '/detected_markers', 10)
         self.debug_pub = self.create_publisher(Image, '/pose_estimator/debug', 10)
 
-        # Run detection at 2 Hz
         self.create_timer(0.5, self._detect)
 
         self.get_logger().info('Pose Estimator started (with shape detection)')
-
-    # ------------------------------------------------------------------
-    # Sensor callbacks
-    # ------------------------------------------------------------------
 
     def _color_cb(self, msg):
         try:
@@ -118,12 +105,7 @@ class PoseEstimator(Node):
     def _info_cb(self, msg):
         self.camera_matrix = np.array(msg.k).reshape(3, 3)
 
-    # ------------------------------------------------------------------
-    # Color mask generation
-    # ------------------------------------------------------------------
-
     def _build_mask(self, hsv, color_name):
-        """Build a binary mask for the given color, handling wraparound for red."""
         cfg = self.colors[color_name]
         mask = cv2.inRange(hsv, cfg['lower1'], cfg['upper1'])
         if 'lower2' in cfg:
@@ -134,12 +116,7 @@ class PoseEstimator(Node):
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         return mask
 
-    # ------------------------------------------------------------------
-    # Depth sampling - use median of a small patch for robustness
-    # ------------------------------------------------------------------
-
     def _sample_depth(self, cy, cx, patch_size=11):
-        """Return median depth in meters around (cy, cx)."""
         h, w = self.depth_image.shape[:2]
         half = patch_size // 2
         y0 = max(0, cy - half)
@@ -157,29 +134,12 @@ class PoseEstimator(Node):
         if len(valid) == 0:
             return -1.0
 
-        # Reject noisy depth patches (jitter)
         if float(np.std(valid)) > 0.01:
             return -1.0
 
         return float(np.median(valid))
 
-    # ------------------------------------------------------------------
-    # Shape + orientation classification
-    # ------------------------------------------------------------------
-
     def _classify_shape(self, contour, expected_shape):
-        """
-        Classify the contour shape and determine if the object is vertical or
-        horizontal.  Returns (shape_name, image_angle_rad, is_vertical)
-        or None if the contour does not match expectations.
-
-        image_angle_rad is the raw minAreaRect angle in the camera image plane.
-        The caller must convert it to world-frame yaw using the camera→world TF.
-
-        From a top-down camera:
-          - VERTICAL object (standing) → appears as a small circle (low aspect)
-          - HORIZONTAL object (lying)  → appears elongated (high aspect)
-        """
         if len(contour) < 5:
             return None
 
@@ -220,19 +180,12 @@ class PoseEstimator(Node):
             else:
                 is_vertical = True
 
-        # Return raw image angle — the long axis direction in the image
-        # minAreaRect angle is in degrees, convert to radians
-        # Ensure angle aligns with the LONG axis of the bounding rect
         angle_deg = rect[2]
         if w_rect < h_rect:
             angle_deg += 90.0
         image_angle_rad = np.radians(angle_deg)
 
         return (detected_shape, image_angle_rad, is_vertical)
-
-    # ------------------------------------------------------------------
-    # Main detection loop
-    # ------------------------------------------------------------------
 
     def _detect(self):
         if self.color_image is None or self.depth_image is None or self.camera_matrix is None:
@@ -283,7 +236,6 @@ class PoseEstimator(Node):
                 if depth < self.DEPTH_MIN or depth > self.DEPTH_MAX:
                     continue
 
-                # Back-project to camera frame
                 x_cam = (cx_px - cx_cam) * depth / fx
                 y_cam = (cy_px - cy_cam) * depth / fy
                 z_cam = depth
@@ -301,11 +253,9 @@ class PoseEstimator(Node):
                     pt_cam = np.array([x_cam, y_cam, z_cam])
                     pt_world = rot.apply(pt_cam) + np.array([t.x, t.y, t.z])
 
-                    # Filter by table height
                     if pt_world[2] < self.TABLE_Z_MIN or pt_world[2] > self.TABLE_Z_MAX:
                         continue
 
-                    # Filter out detections near container positions
                     near_container = False
                     for cx_cont, cy_cont in self.CONTAINER_POSITIONS:
                         dist = np.sqrt((pt_world[0] - cx_cont)**2 + (pt_world[1] - cy_cont)**2)
@@ -322,11 +272,6 @@ class PoseEstimator(Node):
 
                     detected_shape, image_angle_rad, is_vertical = result
 
-                    # Convert image-plane angle to world-frame yaw.
-                    # In camera_optical_frame: X=right, Y=down, Z=forward.
-                    # The image angle is a rotation in the camera XY plane.
-                    # We project a unit direction vector from the image into world
-                    # to get the true yaw.
                     dir_cam = np.array([
                         np.cos(image_angle_rad),
                         np.sin(image_angle_rad),

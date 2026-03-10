@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import tempfile
 import xacro
@@ -19,13 +18,11 @@ def generate_launch_description():
     world_file = os.path.join(pkg, 'worlds', 'pick_reorient.world')
     fastrtps_profile = os.path.join(pkg, 'config', 'fastrtps_no_shm.xml')
 
-    # Pre-process xacro into a plain XML string (PASS mappings!)
     robot_description_content = xacro.process_file(
         xacro_file,
         mappings={'controllers_yaml': controllers_yaml},
     ).toxml()
 
-    # Strip any ros2_control block that targets real UR driver hardware interface
     robot_description_content = re.sub(
         r'<ros2_control\b[^>]*>.*?<plugin>\s*ur_robot_driver/URPositionHardwareInterface\s*</plugin>.*?</ros2_control>',
         '',
@@ -51,14 +48,12 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}],
     )
 
-    # Write to a temp file so spawn_entity can load the URDF from a file.
     urdf_tmp = tempfile.NamedTemporaryFile(
         mode='w', suffix='.urdf', prefix='ur5_gripper_', delete=False
     )
     urdf_tmp.write(robot_description_content)
     urdf_tmp.close()
 
-    # GAZEBO_MODEL_PATH
     model_paths = [
         os.path.join(ur_desc, '..'),
         os.path.join(pkg, '..'),
@@ -71,7 +66,6 @@ def generate_launch_description():
         value=full_path,
     )
 
-    # GAZEBO_PLUGIN_PATH — workspace-compiled plugins
     ws_root = os.path.normpath(os.path.join(os.path.dirname(pkg), '..', '..', '..'))
     plugin_paths = [
         os.path.join(ws_root, 'install', 'gazebo_grasp_fix', 'lib'),

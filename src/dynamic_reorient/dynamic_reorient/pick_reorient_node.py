@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""
-Pick and Reorient Node - Vision-driven with deterministic fallback.
-
-Subscribes to /detected_objects from the pose_estimator to build a task list
-from real-time vision detections. Falls back to known positions if the
-pose_estimator is not running or finds no objects.
-
-Objects are processed in order: vertical first, then horizontal (reorient).
-Uses grasp_attach to lock objects to gripper reliably.
-"""
 import time
 import threading
 import rclpy
@@ -31,31 +21,24 @@ from moveit_msgs.msg import MoveItErrorCodes
 from builtin_interfaces.msg import Duration
 
 
-# ---------------------------------------------------------------------------
-# Default grasp parameters per shape (used when building tasks from vision)
-# ---------------------------------------------------------------------------
 SHAPE_DEFAULTS = {
     'bottle': {'grip': 0.45, 'z_offset': 0.005},
     'box':    {'grip': 0.44, 'z_offset': 0.005},
     'cylinder': {'grip': 0.58, 'z_offset': 0.005},
 }
-# Horizontal objects need tighter grip on the cross-section
 SHAPE_DEFAULTS_H = {
     'bottle': {'grip': 0.55, 'z_offset': 0.005},
     'box':    {'grip': 0.50, 'z_offset': 0.005},
     'cylinder': {'grip': 0.65, 'z_offset': 0.005},
 }
 
-# Container placement targets per color (two slots each)
 CONTAINER_SLOTS = {
     'red':   [{'x': 0.65, 'y': 0.25}, {'x': 0.55, 'y': 0.25}],
     'green': [{'x': 0.55, 'y': 0.0},  {'x': 0.65, 'y': 0.0}],
     'blue':  [{'x': 0.55, 'y': -0.25}, {'x': 0.65, 'y': -0.25}],
 }
 
-# Fallback task list — used only when vision produces no detections
 FALLBACK_TASKS = [
-    # === VERTICAL OBJECTS ===
     {
         'name': 'red_bottle_1 (standing)',
         'pick': {'x': 0.28, 'y': 0.48, 'z': 0.82},
@@ -101,7 +84,6 @@ FALLBACK_TASKS = [
         'place': {'x': 0.55, 'y': -0.25},
         'color': 'blue',
     },
-    # === HORIZONTAL OBJECT ===
     {
         'name': 'blue_cylinder_1 (lying)',
         'pick': {'x': 0.25, 'y': -0.42, 'z': 0.73},
@@ -125,9 +107,7 @@ class PickReorientNode(Node):
 
     CONTAINER_WALL = {'red': 0.08, 'green_big': 0.07, 'green_small': 0.05, 'blue': 0.06}
 
-    # Duration (seconds) to collect vision detections before building task list
     VISION_COLLECT_SEC = 8.0
-    # Minimum distance (m) to consider two detections as the same object
     CLUSTER_RADIUS = 0.06
 
     def __init__(self):
@@ -209,22 +189,17 @@ class PickReorientNode(Node):
         self.publish_status('Moving to home')
         self.move_arm([0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0], 3.0)
 
-    # ------------------------------------------------------------------
-    # Vision integration
-    # ------------------------------------------------------------------
     def _vision_cb(self, msg: PoseStamped):
         """Accumulate detections from pose_estimator during collection window."""
         if not self._vision_collecting:
             return
 
-        # Parse frame_id: "world::color::shape::V_or_H"
         parts = msg.header.frame_id.split('::')
         if len(parts) != 4:
             return
         _, color, shape, orient = parts
         is_vertical = (orient == 'V')
 
-        # Extract yaw from orientation quaternion
         q = msg.pose.orientation
         rot = R.from_quat([q.x, q.y, q.z, q.w])
         yaw = rot.as_euler('xyz')[2]
@@ -247,7 +222,6 @@ class PickReorientNode(Node):
                 f'{self.VISION_COLLECT_SEC}s...')
 
     def _build_tasks_from_vision(self):
-        """Cluster raw detections and build a task list. Returns list or None."""
         if not self._raw_detections:
             return None
 
@@ -362,12 +336,10 @@ class PickReorientNode(Node):
                 'Vision: no detections received, using fallback task list '
                 f'({len(self._tasks)} tasks)')
 
-    # ------------------------------------------------------------------
     def main_loop(self):
         if not self.controllers_ready or self.is_busy:
             return
 
-        # Still collecting vision data?
         if self._vision_collecting:
             if (self._vision_start_time is not None and
                     time.time() - self._vision_start_time >= self.VISION_COLLECT_SEC):
@@ -408,7 +380,6 @@ class PickReorientNode(Node):
         self.is_busy = False
 
     def _get_current_tcp_pose(self):
-        """Return current TCP pose in world frame as PoseStamped, or None."""
         try:
             tf = self.tf_buffer.lookup_transform(
                 'world',
@@ -436,7 +407,6 @@ class PickReorientNode(Node):
         )
         return pose
 
-    # ------------------------------------------------------------------
     def make_pose(self, x, y, z, yaw=0.0, pitch=None):
         pose = PoseStamped()
         pose.header.frame_id = 'world'
@@ -467,9 +437,6 @@ class PickReorientNode(Node):
             return base + 0.12
         return base + 0.055
 
-    # ------------------------------------------------------------------
-    # MAIN TASK EXECUTION
-    # ------------------------------------------------------------------
     def execute_task(self, task):
         p = task['pick']
         px, py, pz = p['x'], p['y'], p['z']
@@ -479,10 +446,6 @@ class PickReorientNode(Node):
         color = task['color']
         needs_reorient = task.get('reorient', False)
 
-        # TCP height: fingers extend ~14cm below TCP on Robotiq 2F-85
-        # We want fingertips at object center height (pz)
-        # So TCP should be at pz + fingertip_offset
-        # But we need to account for object size - grip at middle of object
         grasp_z = pz + 0.005
         grasp_z = max(grasp_z, self.TABLE_Z + 0.015)
 
@@ -595,7 +558,6 @@ class PickReorientNode(Node):
             self.make_pose(retract_x, retract_y, self.SAFE_Z, yaw=0.0), duration=1.5)
         self.publish_status(f'Done: {task["name"]}')
 
-    # ------------------------------------------------------------------
     def _reorient_wrist(self, tilt=-np.pi/2):
         """Rotate only wrist_1_joint by `tilt`, keeping all other joints fixed."""
         if self.current_joints is None:
@@ -706,7 +668,6 @@ class PickReorientNode(Node):
         except Exception as e:
             self.get_logger().error(f'Detach failed: {e}')
 
-    # ------------------------------------------------------------------
     def move_to_pose(self, target, duration=4.0):
         if not self.ik_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().error('IK not available')
@@ -831,7 +792,6 @@ class PickReorientNode(Node):
         traj.points.append(pt)
         goal = FollowJointTrajectory.Goal()
         goal.trajectory = traj
-        # Wide tolerances — gripper will stall against object, that's OK
         from control_msgs.msg import JointTolerance
         for jn in self.gripper_joints:
             tol = JointTolerance()

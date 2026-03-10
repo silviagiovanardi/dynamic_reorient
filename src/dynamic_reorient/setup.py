@@ -21,7 +21,7 @@ setup(
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='User',
-    maintainer_email='user@email.com',
+    maintainer_email='',
     description='Dynamic Pick and Reorient with UR5',
     license='MIT',
     entry_points={

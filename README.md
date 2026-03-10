@@ -79,14 +79,14 @@ ros2 run dynamic_reorient pick_reorient_node
 
 ```
 ┌─────────────────┐     ┌──────────────────┐
-│   RGB-D Camera  │────▶│  Pose Estimator  │
+│   RGB-D Camera  │────>│  Pose Estimator  │
 │  /camera/*      │     │  (color + shape) │
 └─────────────────┘     └────────┬─────────┘
                                  │ /detected_objects (PoseStamped)
                                  │ /detected_markers (MarkerArray)
                                  ▼
 ┌─────────────────┐     ┌──────────────────┐     ┌──────────────┐
-│     Gazebo      │◀───▶│ Pick & Reorient  │────▶│   MoveIt2    │
+│     Gazebo      │<───>│ Pick & Reorient  │────>│   MoveIt2    │
 │   Simulation    │     │ (vision-driven)  │     │  /compute_ik │
 └────────┬────────┘     └──────────────────┘     └──────────────┘
          │                   │         │
@@ -189,10 +189,3 @@ ros2 control list_controllers
 - [Gazebo Tutorials](https://gazebosim.org/docs)
 - [ROS2 Control](https://control.ros.org/)
 - [Universal Robots ROS2 Description](https://github.com/UniversalRobots/Universal_Robots_ROS2_Description)
-- Original inspiration: [TrashThrower Project](https://github.com/davidedavo/smart_robotics)
-
-## License
-
-MIT License
-
-## Authors

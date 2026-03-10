@@ -10,7 +10,6 @@
       <real_time_update_rate>1000</real_time_update_rate>  X VELOCITA  -->
     </physics>
 
-    <!-- Grasp fix plugin: attach/detach objects to gripper via ROS2 services -->
     <plugin name="gazebo_grasp_fix" filename="libgazebo_grasp_fix.so">
       <robot_model>ur5</robot_model>
 
@@ -21,7 +20,6 @@
     <include><uri>model://sun</uri></include>
     <include><uri>model://ground_plane</uri></include>
 
-    <!-- Robot pedestal - centered in front of table for full reach -->
     <model name="robot_pedestal">
       <static>true</static>
       <pose>-0.05 0.0 0.0 0 0 0</pose>
@@ -42,7 +40,6 @@
       </link>
     </model>
 
-    <!-- Work table -->
     <model name="table">
       <static>true</static>
       <pose>0.5 0 0.0 0 0 0</pose>
@@ -72,20 +69,12 @@
       </link>
     </model>
 
-    <!-- ============================================ -->
-    <!-- TARGET CONTAINERS (right side of table)      -->
-    <!-- 6 recessed slots: 2 red, 2 green, 2 blue    -->
-    <!-- Arranged in a 2x3 grid                       -->
-    <!-- ============================================ -->
 
-    <!-- Red container 1 - octagonal hole for bottle (inscribed r~0.030, depth=0.08) -->
-    <!-- Red container 1 - round recessed slot for bottle (r_in=0.029, depth=0.08) -->
     <model name="target_red_1">
       <static>true</static>
       <pose>0.55 0.25 0.712 0 0 0</pose>
       <link name="link">
 
-        <!-- base plate -->
         <visual name="base">
           <geometry><box><size>0.10 0.10 0.005</size></box></geometry>
           <material><ambient>0.45 0.04 0.04 1</ambient><diffuse>0.55 0.05 0.05 1</diffuse></material>
@@ -94,7 +83,6 @@
           <geometry><box><size>0.10 0.10 0.005</size></box></geometry>
         </collision>
 
-        <!-- round ring walls (12 segments) -->
         <visual name="w0"><pose>0.03100 0.00000 0.040 0 0 1.57080</pose><geometry><box><size>0.01632 0.004 0.08</size></box></geometry><material><ambient>0.65 0.05 0.05 1</ambient><diffuse>0.65 0.05 0.05 1</diffuse></material></visual>
         <collision name="w0c"><pose>0.03100 0.00000 0.040 0 0 1.57080</pose><geometry><box><size>0.01632 0.004 0.08</size></box></geometry></collision>
 
@@ -134,13 +122,11 @@
       </link>
     </model>
 
-    <!-- Red container 2 - octagonal hole for bottle -->
     <model name="target_red_2">
       <static>true</static>
       <pose>0.65 0.25 0.712 0 0 0</pose>
       <link name="link">
 
-        <!-- base plate -->
         <visual name="base">
           <geometry><box><size>0.10 0.10 0.005</size></box></geometry>
           <material><ambient>0.45 0.04 0.04 1</ambient><diffuse>0.55 0.05 0.05 1</diffuse></material>
@@ -149,7 +135,6 @@
           <geometry><box><size>0.10 0.10 0.005</size></box></geometry>
         </collision>
 
-        <!-- round ring walls (12 segments) -->
         <visual name="w0"><pose>0.03100 0.00000 0.040 0 0 1.57080</pose><geometry><box><size>0.01632 0.004 0.08</size></box></geometry><material><ambient>0.65 0.05 0.05 1</ambient><diffuse>0.65 0.05 0.05 1</diffuse></material></visual>
         <collision name="w0c"><pose>0.03100 0.00000 0.040 0 0 1.57080</pose><geometry><box><size>0.01632 0.004 0.08</size></box></geometry></collision>
 
@@ -189,8 +174,6 @@
       </link>
     </model>
 
-    <!-- Green container 1 - LARGE rectangular pocket for box 1 (0.05x0.05x0.10) -->
-    <!-- Inner opening: 0.058x0.058, wall height 0.07 (taller for tall box) -->
     <model name="target_green_1">
       <static>true</static>
       <pose>0.55 0.0 0.712 0 0 0</pose>
@@ -217,8 +200,6 @@
       </link>
     </model>
 
-    <!-- Green container 2 - SMALL rectangular pocket for box 2 (0.04x0.04x0.06) -->
-    <!-- Inner opening: 0.048x0.048, wall height 0.05 -->
     <model name="target_green_2">
       <static>true</static>
       <pose>0.65 0.0 0.712 0 0 0</pose>
@@ -245,13 +226,11 @@
       </link>
     </model>
 
-    <!-- Blue container 1 - octagonal hole for cylinder (inscribed r~0.025, depth=0.06) -->
     <model name="target_blue_1">
       <static>true</static>
       <pose>0.55 -0.25 0.712 0 0 0</pose>
       <link name="link">
 
-        <!-- base plate -->
         <visual name="base">
           <geometry><box><size>0.10 0.10 0.005</size></box></geometry>
           <material>
@@ -263,12 +242,6 @@
           <geometry><box><size>0.10 0.10 0.005</size></box></geometry>
         </collision>
 
-        <!-- Round ring for cylinder (r_in ≈ 0.026) -->
-        <!-- r_mid = 0.028 , 12 segments -->
-
-        <!-- segment length = 0.01463 -->
-        
-        <!-- w0 -->
         <visual name="w0"><pose>0.02800 0.00000 0.040 0 0 1.57080</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -277,7 +250,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w1 -->
         <visual name="w1"><pose>0.02425 0.01400 0.040 0 0 2.09440</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -286,7 +258,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w2 -->
         <visual name="w2"><pose>0.01400 0.02425 0.040 0 0 2.61799</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -295,7 +266,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w3 -->
         <visual name="w3"><pose>0.00000 0.02800 0.040 0 0 3.14159</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -304,7 +274,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w4 -->
         <visual name="w4"><pose>-0.01400 0.02425 0.040 0 0 3.66519</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -313,7 +282,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w5 -->
         <visual name="w5"><pose>-0.02425 0.01400 0.040 0 0 4.18879</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -322,7 +290,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w6 -->
         <visual name="w6"><pose>-0.02800 0.00000 0.040 0 0 4.71239</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -331,7 +298,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w7 -->
         <visual name="w7"><pose>-0.02425 -0.01400 0.040 0 0 5.23599</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -340,7 +306,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w8 -->
         <visual name="w8"><pose>-0.01400 -0.02425 0.040 0 0 5.75959</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -349,7 +314,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w9 -->
         <visual name="w9"><pose>0.00000 -0.02800 0.040 0 0 6.28319</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -358,7 +322,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w10 -->
         <visual name="w10"><pose>0.01400 -0.02425 0.040 0 0 6.80678</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -367,7 +330,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w11 -->
         <visual name="w11"><pose>0.02425 -0.01400 0.040 0 0 7.33038</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -379,13 +341,11 @@
       </link>
     </model>
 
-    <!-- Blue container 2 - octagonal hole for cylinder + vicino 0.70 0.10 -->
     <model name="target_blue_2">
       <static>true</static>
       <pose>0.65 -0.25 0.712 0 0 0</pose>
       <link name="link">
 
-        <!-- base plate -->
         <visual name="base">
           <geometry><box><size>0.10 0.10 0.005</size></box></geometry>
           <material>
@@ -397,11 +357,6 @@
           <geometry><box><size>0.10 0.10 0.005</size></box></geometry>
         </collision>
 
-        <!-- Round ring for cylinder (r_in ≈ 0.026) -->
-        <!-- r_mid = 0.028 , 12 segments -->
-        <!-- segment length = 0.01463 -->
-
-        <!-- w0 -->
         <visual name="w0"><pose>0.02800 0.00000 0.040 0 0 1.57080</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -410,7 +365,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w1 -->
         <visual name="w1"><pose>0.02425 0.01400 0.040 0 0 2.09440</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -419,7 +373,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w2 -->
         <visual name="w2"><pose>0.01400 0.02425 0.040 0 0 2.61799</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -428,7 +381,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w3 -->
         <visual name="w3"><pose>0.00000 0.02800 0.040 0 0 3.14159</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -437,7 +389,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w4 -->
         <visual name="w4"><pose>-0.01400 0.02425 0.040 0 0 3.66519</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -446,7 +397,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w5 -->
         <visual name="w5"><pose>-0.02425 0.01400 0.040 0 0 4.18879</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -455,7 +405,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w6 -->
         <visual name="w6"><pose>-0.02800 0.00000 0.040 0 0 4.71239</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -464,7 +413,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w7 -->
         <visual name="w7"><pose>-0.02425 -0.01400 0.040 0 0 5.23599</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -473,7 +421,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w8 -->
         <visual name="w8"><pose>-0.01400 -0.02425 0.040 0 0 5.75959</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -482,7 +429,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w9 -->
         <visual name="w9"><pose>0.00000 -0.02800 0.040 0 0 6.28319</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -491,7 +437,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w10 -->
         <visual name="w10"><pose>0.01400 -0.02425 0.040 0 0 6.80678</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -500,7 +445,6 @@
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
         </collision>
 
-        <!-- w11 -->
         <visual name="w11"><pose>0.02425 -0.01400 0.040 0 0 7.33038</pose>
           <geometry><box><size>0.01463 0.004 0.08</size></box></geometry>
           <material><ambient>0.05 0.05 0.75 1</ambient><diffuse>0.05 0.05 0.85 1</diffuse></material>
@@ -512,14 +456,7 @@
       </link>
     </model>
 
-    <!-- ============================================ -->
-    <!-- OBJECTS (left/center of table for picking)   -->
-    <!-- 5 objects: 2 red bottles, 1 green box,       -->
-    <!--   1 blue cylinder, 1 green box (small)       -->
-    <!-- ============================================ -->
-
     <!-- Red bottle 1 (standing) -->
-    <!-- Standing: center at TABLE(0.71)+0.06=0.77 -->
     <model name="red_bottle_1">
       <pose>0.28 0.48 0.77 0 0 0.2</pose>
       <link name="link">
@@ -545,7 +482,6 @@
     </model>
 
     <!-- Red bottle 2 (standing up) -->
-    <!-- Standing: half-length=0.06, center at TABLE(0.71)+0.06=0.77 -->
     <model name="red_bottle_2">
       <pose>0.40 0.30 0.77 0 0 0.2</pose>
       <link name="link">
@@ -571,7 +507,6 @@
     </model>
 
     <!-- Green box 1 (standing) -->
-    <!-- Standing: half-height=0.05, center at TABLE(0.71)+0.05=0.76 -->
     <model name="green_box_1">
       <pose>0.35 0.10 0.76 0 0 0.15</pose>
       <link name="link">
@@ -590,7 +525,6 @@
     </model>
 
     <!-- Green box 2 (small, lying flat) -->
-    <!-- Lying on 0.04 side: half=0.02, center at TABLE(0.71)+0.02=0.73 -->
     <model name="green_box_2">
       <pose>0.40 -0.10 0.73 0 0 0.7</pose>
       <link name="link">
@@ -609,7 +543,6 @@
     </model>
 
     <!-- Blue cylinder 1 (lying on side) -->
-    <!-- Lying: rests on r=0.02, center at TABLE(0.71)+0.02=0.73 -->
     <model name="blue_cylinder_1">
       <pose>0.25 -0.42 0.73 1.5708 -0.3 0.8</pose>
       <link name="link">
@@ -628,7 +561,6 @@
     </model>
 
     <!-- Blue cylinder 2 (standing) -->
-    <!-- Standing: half-length=0.04, center at TABLE(0.71)+0.04=0.75 -->
     <model name="blue_cylinder_2">
       <pose>0.40 -0.35 0.75 0 0 0</pose>
       <link name="link">
