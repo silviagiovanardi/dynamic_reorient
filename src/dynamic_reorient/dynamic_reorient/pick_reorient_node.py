@@ -292,13 +292,18 @@ class PickReorientNode(Node):
             self.get_logger().error('Descent failed')
             return
 
-        # 5. GRASP: attach first (no pre-close), then close to grip visually
-        time.sleep(0.3)
+        # 5. GRASP: prima una pre-chiusura leggera, poi attach, poi chiusura finale lenta
+        time.sleep(0.15)
+
+        pre_grip = max(0.20, grip * 0.55)   # primo contatto morbido
+        self.control_gripper_partial(pre_grip, duration=1)
+        time.sleep(0.25)
+
         self.grasp_attach()
-        time.sleep(0.5)
-        # Close to visually hold the object (grip value = snug contact)
-        self.control_gripper_partial(grip, duration=2)
-        time.sleep(0.5)
+        time.sleep(0.15)
+
+        self.control_gripper_partial(grip, duration=3)
+        time.sleep(0.2)
 
         # 6. Lift
         self.publish_status('Lifting')
